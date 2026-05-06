@@ -12,17 +12,30 @@ TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项�
 - `internal/bootstrap` 负责应用装配
 - `internal/config` 负责最小配置加载
 - `internal/router` 负责路由注册
-- `internal/handler` 提供 `/health` 接口
+- `internal/handler` 提供 `/health` 与 `/me` 接口
 - `internal/database` 提供 MongoDB 初始化骨架
+- `internal/middleware` 提供固定测试用户注入
+- `internal/model` 提供最小 `User` 结构
 
 当前可运行接口：
 - `GET /health`
+- `GET /me`
 
 返回示例：
 
 ```json
 {
   "status": "ok"
+}
+```
+
+```json
+{
+  "user": {
+    "id": "u_test_001",
+    "name": "Test User",
+    "role": "owner"
+  }
 }
 ```
 
@@ -63,6 +76,7 @@ PORT=8081 MONGODB_URI=mongodb://localhost:27017 MONGODB_DATABASE=taskflow go run
 
 ```bash
 curl http://localhost:8080/health
+curl http://localhost:8080/me
 ```
 
 ## 当前 V0 边界
@@ -86,6 +100,6 @@ Week 2 当前优先级：
 ## 下一步
 
 下一步应优先补齐：
-- 最小身份能力（固定测试身份 / 种子用户 / 简化登录）
 - Task 基础能力：创建、详情、列表、更新 `title` / `description`
 - 让 router / handler / service / repository 开始围绕任务主链落地
+- 后续再把当前固定测试身份替换为更真实的最小用户来源
