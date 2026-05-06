@@ -1,15 +1,17 @@
 package main
 
-import "github.com/gin-gonic/gin"
+import (
+	"log"
+
+	"github.com/AsaqeLee/taskflow/internal/bootstrap"
+	"github.com/AsaqeLee/taskflow/internal/config"
+)
 
 func main() {
-	r := gin.Default()
+	cfg := config.Load()
+	app := bootstrap.NewApp(cfg)
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status": "ok",
-		})
-	})
-
-	_ = r.Run(":8080")
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
