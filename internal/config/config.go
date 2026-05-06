@@ -2,19 +2,34 @@ package config
 
 import "os"
 
-const defaultPort = "8080"
+const (
+	defaultPort     = "8080"
+	defaultMongoURI = "mongodb://localhost:27017"
+	defaultMongoDB  = "taskflow"
+)
 
 type Config struct {
-	Port string
+	Port     string
+	MongoURI string
+	MongoDB  string
 }
 
 func Load() Config {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = defaultPort
-	}
+	port := getenv("PORT", defaultPort)
+	mongoURI := getenv("MONGODB_URI", defaultMongoURI)
+	mongoDB := getenv("MONGODB_DATABASE", defaultMongoDB)
 
 	return Config{
-		Port: port,
+		Port:     port,
+		MongoURI: mongoURI,
+		MongoDB:  mongoDB,
 	}
+}
+
+func getenv(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }

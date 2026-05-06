@@ -13,6 +13,7 @@ TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项�
 - `internal/config` 负责最小配置加载
 - `internal/router` 负责路由注册
 - `internal/handler` 提供 `/health` 接口
+- `internal/database` 提供 MongoDB 初始化骨架
 
 当前可运行接口：
 - `GET /health`
@@ -33,7 +34,18 @@ TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项�
 go mod tidy
 ```
 
-### 2. 启动服务
+### 2. 准备环境变量
+
+```bash
+cp .env.example .env
+```
+
+当前默认环境变量：
+- `PORT=8080`
+- `MONGODB_URI=mongodb://localhost:27017`
+- `MONGODB_DATABASE=taskflow`
+
+### 3. 启动服务
 
 ```bash
 go run ./cmd/server
@@ -44,10 +56,10 @@ go run ./cmd/server
 也可以通过环境变量覆盖：
 
 ```bash
-PORT=8081 go run ./cmd/server
+PORT=8081 MONGODB_URI=mongodb://localhost:27017 MONGODB_DATABASE=taskflow go run ./cmd/server
 ```
 
-### 3. 检查服务
+### 4. 检查服务
 
 ```bash
 curl http://localhost:8080/health
@@ -74,6 +86,6 @@ Week 2 当前优先级：
 ## 下一步
 
 下一步应优先补齐：
-- 数据库连接初始化
 - 最小身份能力（固定测试身份 / 种子用户 / 简化登录）
 - Task 基础能力：创建、详情、列表、更新 `title` / `description`
+- 让 router / handler / service / repository 开始围绕任务主链落地

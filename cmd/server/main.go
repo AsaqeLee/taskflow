@@ -9,7 +9,10 @@ import (
 
 func main() {
 	cfg := config.Load()
-	app := bootstrap.NewApp(cfg)
+	app, err := bootstrap.NewApp(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
