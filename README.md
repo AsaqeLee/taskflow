@@ -4,6 +4,95 @@ TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项�
 
 当前目标不是一次性做完整用户系统，而是先围绕 V0 范围搭出可运行骨架，并逐步打通任务闭环主链。
 
+## Architecture
+
+当前 TaskFlow 采用分层后端结构：
+
+```mermaid
+flowchart LR
+    Client[Client / Curl / Frontend]
+    Main[cmd/server/main.go]
+    Config[internal/config]
+    App[internal/bootstrap.App]
+    Router[internal/router]
+    Middleware[internal/middleware.FixedTestUser]
+    Handlers[internal/handler<br/>Health / Me / Task]
+    Service[internal/service.TaskService]
+    Repo[internal/repository.TaskRepository]
+    MemoryRepo[internal/repository.MemoryTaskRepository]
+    Models[internal/model<br/>User / Task]
+    DB[internal/database<br/>Mongo Client]
+
+    Client --> Router
+    Main --> Config
+    Main --> App
+
+    App --> Router
+    App --> Service
+    App --> Repo
+    App --> DB
+
+    Router --> Middleware
+    Router --> Handlers
+
+    Middleware --> Models
+    Handlers --> Service
+    Handlers --> Models
+
+    Service --> Repo
+    Service --> Models
+
+    Repo --> MemoryRepo
+```
+
+### Layer responsibilities
+
+- `cmd/server/main.go`
+  - 程序启动入口
+  - 加载配置并启动应用
+
+- `internal/config`
+  - 加载运行配置，例如端口和 MongoDB 设置
+
+- `internal/bootstrap`
+  - 负责应用装配
+  - 构建 router、service、repository 和 database client
+
+- `internal/router`
+  - 注册 Gin 路由
+
+- `internal/middleware`
+  - 将固定测试用户注入请求上下文
+
+- `internal/handler`
+  - 处理 HTTP 请求与响应
+  - 解析输入，并将 service 错误映射成 HTTP 状态码
+
+- `internal/service`
+  - 承载业务规则与校验逻辑
+
+- `internal/repository`
+  - 定义数据访问抽象
+  - 当前实现仍使用内存存储
+
+- `internal/model`
+  - 定义核心数据结构，例如 `User` 和 `Task`
+
+- `internal/database`
+  - 初始化 MongoDB 客户端基础设施
+
+### Current status
+
+- MongoDB client bootstrap 已接入
+- Task 数据当前仍通过 `MemoryTaskRepository` 管理
+- 当前可运行接口：
+  - `GET /health`
+  - `GET /me`
+  - `POST /tasks`
+  - `GET /tasks`
+  - `GET /tasks/:id`
+  - `PATCH /tasks/:id`
+
 ## 当前进度
 
 当前已完成的最小工程骨架：

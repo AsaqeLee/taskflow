@@ -6,13 +6,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func New() *gin.Engine {
+func New(taskHandler *handler.TaskHandler) *gin.Engine {
 	r := gin.Default()
 	r.GET("/health", handler.Health)
 
 	authenticated := r.Group("/")
 	authenticated.Use(middleware.FixedTestUser())
 	authenticated.GET("/me", handler.Me)
+	authenticated.POST("/tasks", taskHandler.Create)
+	authenticated.GET("/tasks", taskHandler.List)
+	authenticated.GET("/tasks/:id", taskHandler.GetByID)
+	authenticated.PATCH("/tasks/:id", taskHandler.UpdateBasic)
+	authenticated.POST("/tasks/:id/assign", taskHandler.Assign)
 
 	return r
 }
