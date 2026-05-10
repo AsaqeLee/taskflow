@@ -12,6 +12,9 @@ import (
 const TaskStatusOpen = "open"
 const TaskStatusAssigned = "assigned"
 const TaskStatusInProgress = "in_progress"
+const TaskStatusSubmitted = "submitted"
+const TaskStatusApproved = "approved"
+const TaskStatusCompleted = "completed"
 
 var ErrInvalidTaskID = errors.New("task id is required")
 var ErrEmptyTaskTitle = errors.New("task title is required")
@@ -21,6 +24,14 @@ var ErrForbiddenAssign = errors.New("current user cannot assign task")
 var ErrInvalidTaskStatusForAssign = errors.New("task status does not allow assign")
 var ErrForbiddenStart = errors.New("current user cannot start task")
 var ErrInvalidTaskStatusForStart = errors.New("task status does not allow start")
+var ErrForbiddenSubmit = errors.New("current user cannot submit task")
+var ErrInvalidTaskStatusForSubmit = errors.New("task status does not allow submit")
+var ErrForbiddenReject = errors.New("current user cannot reject task")
+var ErrInvalidTaskStatusForReject = errors.New("task status does not allow reject")
+var ErrForbiddenApprove = errors.New("current user cannot approve task")
+var ErrInvalidTaskStatusForApprove = errors.New("task status does not allow approve")
+var ErrForbiddenClose = errors.New("current user cannot close task")
+var ErrInvalidTaskStatusForClose = errors.New("task status does not allow close")
 
 type TaskService struct {
 	repo repository.TaskRepository
@@ -142,6 +153,106 @@ func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Ta
 	}
 
 	task.Status = TaskStatusInProgress
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(task)
+}
+
+func (s *TaskService) SubmitTask(currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	if task.Status != TaskStatusInProgress {
+		return model.Task{}, ErrInvalidTaskStatusForSubmit
+	}
+
+	if task.AssigneeID != currentUser.ID {
+		return model.Task{}, ErrForbiddenSubmit
+	}
+
+	task.Status = TaskStatusSubmitted
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(task)
+}
+
+func (s *TaskService) RejectTask(currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	if task.Status != TaskStatusSubmitted {
+		return model.Task{}, ErrInvalidTaskStatusForReject
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return model.Task{}, ErrForbiddenReject
+	}
+
+	task.Status = TaskStatusAssigned
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(task)
+}
+
+func (s *TaskService) ApproveTask(currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	if task.Status != TaskStatusSubmitted {
+		return model.Task{}, ErrInvalidTaskStatusForApprove
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return model.Task{}, ErrForbiddenApprove
+	}
+
+	task.Status = TaskStatusApproved
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(task)
+}
+
+func (s *TaskService) CloseTask(currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	if task.Status != TaskStatusApproved {
+		return model.Task{}, ErrInvalidTaskStatusForClose
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return model.Task{}, ErrForbiddenClose
+	}
+
+	task.Status = TaskStatusCompleted
 	task.UpdatedAt = time.Now().UTC()
 
 	return s.repo.Update(task)

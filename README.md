@@ -94,8 +94,16 @@ flowchart LR
   - `PATCH /tasks/:id`
   - `POST /tasks/:id/assign`
   - `POST /tasks/:id/start`
+  - `POST /tasks/:id/submit`
+  - `POST /tasks/:id/reject`
+  - `POST /tasks/:id/approve`
+  - `POST /tasks/:id/close`
 - `assign` 已完成主链手测，当前已确认它作为第一个动作型接口可以跑通 `create -> assign` 这条最小链路
 - `start` 已完成最小闭环：当前仅允许执行者将任务从 `assigned` 推进到 `in_progress`
+- `submit` 已完成最小闭环：当前仅允许执行者将任务从 `in_progress` 推进到 `submitted`
+- `reject` 已完成最小闭环：当前仅允许创建者将任务从 `submitted` 驳回到 `assigned`
+- `approve` 已完成最小闭环：当前仅允许创建者将任务从 `submitted` 推进到 `approved`
+- `close` 已完成最小闭环：当前仅允许创建者将任务从 `approved` 推进到 `completed`
 
 ## 当前进度
 
@@ -109,7 +117,7 @@ flowchart LR
 - `internal/database` 提供 MongoDB 初始化骨架
 - `internal/middleware` 提供固定测试用户注入
 - `internal/model` 提供最小 `User` 与 `Task` 结构
-- `internal/service` 已承载 Task 基础校验与 `assign` / `start` 动作规则
+- `internal/service` 已承载 Task 基础校验与 `assign` / `start` / `submit` / `reject` / `approve` / `close` 动作规则
 - `internal/repository` 已提供内存版 TaskRepository
 
 当前可运行接口：
@@ -121,6 +129,10 @@ flowchart LR
 - `PATCH /tasks/:id`
 - `POST /tasks/:id/assign`
 - `POST /tasks/:id/start`
+- `POST /tasks/:id/submit`
+- `POST /tasks/:id/reject`
+- `POST /tasks/:id/approve`
+- `POST /tasks/:id/close`
 
 当前已明确落地的业务规则：
 - `title` 不能为空
@@ -132,6 +144,18 @@ flowchart LR
 - `start` 当前不需要请求体
 - 当前仅允许 assignee 执行 `start`
 - 当前仅允许 `assigned -> in_progress`
+- `submit` 当前不需要请求体
+- 当前仅允许 assignee 执行 `submit`
+- 当前仅允许 `in_progress -> submitted`
+- `reject` 当前不需要请求体
+- 当前仅允许创建者执行 `reject`
+- 当前仅允许 `submitted -> assigned`
+- `approve` 当前不需要请求体
+- 当前仅允许创建者执行 `approve`
+- 当前仅允许 `submitted -> approved`
+- `close` 当前不需要请求体
+- 当前仅允许创建者执行 `close`
+- 当前仅允许 `approved -> completed`
 
 返回示例：
 
@@ -211,8 +235,7 @@ Week 2 当前优先级：
 
 ## 下一步
 
-下一步应优先进入动作接口阶段：
-- 继续收紧 `assign` 的错误边界与返回语义
-- 继续补 `start` 的手测与回归验证，确认 `assigned -> in_progress` 语义稳定
-- 再逐步推进 `submit / approve / reject / close`
+下一步应优先进入动作链收尾与配套能力阶段：
+- 继续收紧 `assign / start / submit / reject / approve / close` 的错误边界与返回语义
+- 为动作型接口补统一的操作记录抽象
 - 在动作链逐渐稳定后，再补 `TaskRecord` / `AuditLog` 与更真实的持久化实现

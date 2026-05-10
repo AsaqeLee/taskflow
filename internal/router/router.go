@@ -19,6 +19,10 @@ func New(taskHandler *handler.TaskHandler) *gin.Engine {
 	authenticated.PATCH("/tasks/:id", taskHandler.UpdateBasic)
 	authenticated.POST("/tasks/:id/assign", taskHandler.Assign)
 	authenticated.POST("/tasks/:id/start", taskHandler.Start)
+	authenticated.POST("/tasks/:id/submit", taskHandler.Submit)
+	authenticated.POST("/tasks/:id/reject", taskHandler.Reject)
+	authenticated.POST("/tasks/:id/approve", taskHandler.Approve)
+	authenticated.POST("/tasks/:id/close", taskHandler.Close)
 
 	return r
 }

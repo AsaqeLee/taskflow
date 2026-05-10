@@ -128,6 +128,70 @@ func (h *TaskHandler) Start(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"task": task})
 }
 
+func (h *TaskHandler) Submit(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, err := h.service.SubmitTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
+func (h *TaskHandler) Reject(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, err := h.service.RejectTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
+func (h *TaskHandler) Approve(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, err := h.service.ApproveTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
+func (h *TaskHandler) Close(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, err := h.service.CloseTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
 func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTaskID),
@@ -135,10 +199,18 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrTooShortTaskTitle),
 		errors.Is(err, service.ErrEmptyAssigneeID),
 		errors.Is(err, service.ErrInvalidTaskStatusForAssign),
-		errors.Is(err, service.ErrInvalidTaskStatusForStart):
+		errors.Is(err, service.ErrInvalidTaskStatusForStart),
+		errors.Is(err, service.ErrInvalidTaskStatusForSubmit),
+		errors.Is(err, service.ErrInvalidTaskStatusForReject),
+		errors.Is(err, service.ErrInvalidTaskStatusForApprove),
+		errors.Is(err, service.ErrInvalidTaskStatusForClose):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrForbiddenAssign),
-		errors.Is(err, service.ErrForbiddenStart):
+		errors.Is(err, service.ErrForbiddenStart),
+		errors.Is(err, service.ErrForbiddenSubmit),
+		errors.Is(err, service.ErrForbiddenReject),
+		errors.Is(err, service.ErrForbiddenApprove),
+		errors.Is(err, service.ErrForbiddenClose):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 	case errors.Is(err, repository.ErrTaskNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
