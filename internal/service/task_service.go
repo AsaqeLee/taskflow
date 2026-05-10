@@ -11,6 +11,7 @@ import (
 
 const TaskStatusOpen = "open"
 const TaskStatusAssigned = "assigned"
+const TaskStatusInProgress = "in_progress"
 
 var ErrInvalidTaskID = errors.New("task id is required")
 var ErrEmptyTaskTitle = errors.New("task title is required")
@@ -18,6 +19,8 @@ var ErrTooShortTaskTitle = errors.New("task title must be at least 3 characters"
 var ErrEmptyAssigneeID = errors.New("assignee id is required")
 var ErrForbiddenAssign = errors.New("current user cannot assign task")
 var ErrInvalidTaskStatusForAssign = errors.New("task status does not allow assign")
+var ErrForbiddenStart = errors.New("current user cannot start task")
+var ErrInvalidTaskStatusForStart = errors.New("task status does not allow start")
 
 type TaskService struct {
 	repo repository.TaskRepository
@@ -114,6 +117,31 @@ func (s *TaskService) AssignTask(currentUser model.User, taskID, assigneeID stri
 
 	task.AssigneeID = assigneeID
 	task.Status = TaskStatusAssigned
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(task)
+}
+
+func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	if task.Status != TaskStatusAssigned {
+		return model.Task{}, ErrInvalidTaskStatusForStart
+	}
+
+	if task.AssigneeID != currentUser.ID {
+		return model.Task{}, ErrForbiddenStart
+	}
+
+	task.Status = TaskStatusInProgress
 	task.UpdatedAt = time.Now().UTC()
 
 	return s.repo.Update(task)

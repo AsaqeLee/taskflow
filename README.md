@@ -92,23 +92,46 @@ flowchart LR
   - `GET /tasks`
   - `GET /tasks/:id`
   - `PATCH /tasks/:id`
+  - `POST /tasks/:id/assign`
+  - `POST /tasks/:id/start`
+- `assign` 已完成主链手测，当前已确认它作为第一个动作型接口可以跑通 `create -> assign` 这条最小链路
+- `start` 已完成最小闭环：当前仅允许执行者将任务从 `assigned` 推进到 `in_progress`
 
 ## 当前进度
 
-当前已完成的最小工程骨架：
+当前已完成的能力已经不再只是最小启动骨架，还包括：
 - Gin 作为 Web 框架
 - `cmd/server/main.go` 作为启动入口
 - `internal/bootstrap` 负责应用装配
 - `internal/config` 负责最小配置加载
 - `internal/router` 负责路由注册
-- `internal/handler` 提供 `/health` 与 `/me` 接口
+- `internal/handler` 提供 `/health`、`/me` 与 Task HTTP 接口
 - `internal/database` 提供 MongoDB 初始化骨架
 - `internal/middleware` 提供固定测试用户注入
-- `internal/model` 提供最小 `User` 结构
+- `internal/model` 提供最小 `User` 与 `Task` 结构
+- `internal/service` 已承载 Task 基础校验与 `assign` / `start` 动作规则
+- `internal/repository` 已提供内存版 TaskRepository
 
 当前可运行接口：
 - `GET /health`
 - `GET /me`
+- `POST /tasks`
+- `GET /tasks`
+- `GET /tasks/:id`
+- `PATCH /tasks/:id`
+- `POST /tasks/:id/assign`
+- `POST /tasks/:id/start`
+
+当前已明确落地的业务规则：
+- `title` 不能为空
+- `title` 长度至少 3 个字符
+- `assign` 需要最小请求体字段 `assignee_id`
+- 当前仅允许创建者执行 `assign`
+- 当前仅允许 `open -> assigned`
+- 当前版本不支持重新分配
+- `start` 当前不需要请求体
+- 当前仅允许 assignee 执行 `start`
+- 当前仅允许 `assigned -> in_progress`
 
 返回示例：
 
@@ -188,7 +211,8 @@ Week 2 当前优先级：
 
 ## 下一步
 
-下一步应优先补齐：
-- Task 基础能力：创建、详情、列表、更新 `title` / `description`
-- 让 router / handler / service / repository 开始围绕任务主链落地
-- 后续再把当前固定测试身份替换为更真实的最小用户来源
+下一步应优先进入动作接口阶段：
+- 继续收紧 `assign` 的错误边界与返回语义
+- 继续补 `start` 的手测与回归验证，确认 `assigned -> in_progress` 语义稳定
+- 再逐步推进 `submit / approve / reject / close`
+- 在动作链逐渐稳定后，再补 `TaskRecord` / `AuditLog` 与更真实的持久化实现

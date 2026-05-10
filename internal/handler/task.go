@@ -112,15 +112,33 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"task": task})
 }
 
+func (h *TaskHandler) Start(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, err := h.service.StartTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task})
+}
+
 func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTaskID),
 		errors.Is(err, service.ErrEmptyTaskTitle),
 		errors.Is(err, service.ErrTooShortTaskTitle),
 		errors.Is(err, service.ErrEmptyAssigneeID),
-		errors.Is(err, service.ErrInvalidTaskStatusForAssign):
+		errors.Is(err, service.ErrInvalidTaskStatusForAssign),
+		errors.Is(err, service.ErrInvalidTaskStatusForStart):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	case errors.Is(err, service.ErrForbiddenAssign):
+	case errors.Is(err, service.ErrForbiddenAssign),
+		errors.Is(err, service.ErrForbiddenStart):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 	case errors.Is(err, repository.ErrTaskNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
