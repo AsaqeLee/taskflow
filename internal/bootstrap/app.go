@@ -21,12 +21,11 @@ type App struct {
 }
 
 func NewApp(cfg config.Config) (*App, error) {
-	db, err := database.New(context.Background(), cfg)
+	taskRepo, db, err := newTaskRepository(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	taskRepo := repository.NewMemoryTaskRepository()
 	taskService := service.NewTaskService(taskRepo)
 	taskHandler := handler.NewTaskHandler(taskService)
 
@@ -36,6 +35,18 @@ func NewApp(cfg config.Config) (*App, error) {
 		database:    db,
 		taskHandler: taskHandler,
 	}, nil
+}
+
+func newTaskRepository(ctx context.Context, cfg config.Config) (repository.TaskRepository, *database.Client, error) {
+	if cfg.RepositoryDriver == config.RepositoryDriverMongo {
+		db, err := database.New(ctx, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		return repository.NewMongoTaskRepository(db.Mongo.Database(db.DBName).Collection("tasks")), db, nil
+	}
+
+	return repository.NewMemoryTaskRepository(), nil, nil
 }
 
 func (a *App) Run() error {

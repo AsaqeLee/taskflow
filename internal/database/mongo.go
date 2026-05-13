@@ -7,6 +7,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/config"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 const connectTimeout = 5 * time.Second
@@ -22,6 +23,9 @@ func New(ctx context.Context, cfg config.Config) (*Client, error) {
 
 	client, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
+		return nil, err
+	}
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		return nil, err
 	}
 
