@@ -1,0 +1,7 @@
+# Node.js dependencies
+.husky/
+node_modules/
+.DS_Store
+package-lock.json
+package.json
+.env.local
