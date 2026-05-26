@@ -10,8 +10,9 @@ import (
 
 func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
+	beforeUpdate := now.Add(-time.Second)
 
 	_, err := repo.Create(model.Task{
 		ID:          "task_001",
@@ -21,7 +22,7 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 		CreatorID:   "u_owner_001",
 		AssigneeID:  "u_worker_001",
 		CreatedAt:   now,
-		UpdatedAt:   now,
+		UpdatedAt:   beforeUpdate,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -38,14 +39,14 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 	if task.AssigneeID != "u_worker_001" {
 		t.Fatalf("expected assignee to remain unchanged, got %q", task.AssigneeID)
 	}
-	if !task.UpdatedAt.After(now) {
+	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
 	}
 }
 
 func TestStartTask_RejectsNonAssignee(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -70,7 +71,7 @@ func TestStartTask_RejectsNonAssignee(t *testing.T) {
 
 func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -95,7 +96,7 @@ func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 
 func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -120,7 +121,8 @@ func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 
 func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -138,7 +140,7 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, err := svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_010")
+	task, record, err := svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_010", "Implemented the task and attached proof")
 	if err != nil {
 		t.Fatalf("SubmitTask returned error: %v", err)
 	}
@@ -152,11 +154,24 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
 	}
+	if record.TaskID != "task_010" {
+		t.Fatalf("expected record task_id %q, got %q", "task_010", record.TaskID)
+	}
+	if record.AuthorID != "u_worker_001" {
+		t.Fatalf("expected record author_id %q, got %q", "u_worker_001", record.AuthorID)
+	}
+	if record.Type != model.TaskRecordTypeSubmit {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeSubmit, record.Type)
+	}
+	if record.Content != "Implemented the task and attached proof" {
+		t.Fatalf("unexpected record content %q", record.Content)
+	}
 }
 
 func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -173,7 +188,7 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.SubmitTask(model.User{ID: "u_other_001"}, "task_011")
+	_, _, err = svc.SubmitTask(model.User{ID: "u_other_001"}, "task_011", "done")
 	if err != ErrForbiddenSubmit {
 		t.Fatalf("expected ErrForbiddenSubmit, got %v", err)
 	}
@@ -181,7 +196,8 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 
 func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -198,15 +214,42 @@ func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_012")
+	_, _, err = svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_012", "done")
 	if err != ErrInvalidTaskStatusForSubmit {
 		t.Fatalf("expected ErrInvalidTaskStatusForSubmit, got %v", err)
 	}
 }
 
+func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_013",
+		Title:       "Missing record content",
+		Description: "test",
+		Status:      TaskStatusInProgress,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_013", "   ")
+	if err != ErrEmptyTaskRecordContent {
+		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
+	}
+}
+
 func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -224,7 +267,7 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, err := svc.RejectTask(model.User{ID: "u_owner_001"}, "task_020")
+	task, record, err := svc.RejectTask(model.User{ID: "u_owner_001"}, "task_020", "Please revise the missing edge cases")
 	if err != nil {
 		t.Fatalf("RejectTask returned error: %v", err)
 	}
@@ -238,11 +281,24 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
 	}
+	if record.TaskID != "task_020" {
+		t.Fatalf("expected record task_id %q, got %q", "task_020", record.TaskID)
+	}
+	if record.AuthorID != "u_owner_001" {
+		t.Fatalf("expected record author_id %q, got %q", "u_owner_001", record.AuthorID)
+	}
+	if record.Type != model.TaskRecordTypeReject {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeReject, record.Type)
+	}
+	if record.Content != "Please revise the missing edge cases" {
+		t.Fatalf("unexpected record content %q", record.Content)
+	}
 }
 
 func TestRejectTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -259,7 +315,7 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.RejectTask(model.User{ID: "u_other_001"}, "task_021")
+	_, _, err = svc.RejectTask(model.User{ID: "u_other_001"}, "task_021", "needs changes")
 	if err != ErrForbiddenReject {
 		t.Fatalf("expected ErrForbiddenReject, got %v", err)
 	}
@@ -267,7 +323,8 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 
 func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -284,15 +341,42 @@ func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.RejectTask(model.User{ID: "u_owner_001"}, "task_022")
+	_, _, err = svc.RejectTask(model.User{ID: "u_owner_001"}, "task_022", "needs changes")
 	if err != ErrInvalidTaskStatusForReject {
 		t.Fatalf("expected ErrInvalidTaskStatusForReject, got %v", err)
 	}
 }
 
+func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_023",
+		Title:       "Missing reject reason",
+		Description: "test",
+		Status:      TaskStatusSubmitted,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.RejectTask(model.User{ID: "u_owner_001"}, "task_023", "   ")
+	if err != ErrEmptyTaskRecordContent {
+		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
+	}
+}
+
 func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -310,7 +394,7 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, err := svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_030")
+	task, record, err := svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_030", "Looks good, accepted")
 	if err != nil {
 		t.Fatalf("ApproveTask returned error: %v", err)
 	}
@@ -321,11 +405,17 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
 	}
+	if record.Type != model.TaskRecordTypeApprove {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeApprove, record.Type)
+	}
+	if record.Content != "Looks good, accepted" {
+		t.Fatalf("unexpected record content %q", record.Content)
+	}
 }
 
 func TestApproveTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -342,7 +432,7 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.ApproveTask(model.User{ID: "u_other_001"}, "task_031")
+	_, _, err = svc.ApproveTask(model.User{ID: "u_other_001"}, "task_031", "approved")
 	if err != ErrForbiddenApprove {
 		t.Fatalf("expected ErrForbiddenApprove, got %v", err)
 	}
@@ -350,7 +440,7 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 
 func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -367,15 +457,41 @@ func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_032")
+	_, _, err = svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_032", "approved")
 	if err != ErrInvalidTaskStatusForApprove {
 		t.Fatalf("expected ErrInvalidTaskStatusForApprove, got %v", err)
 	}
 }
 
+func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_033",
+		Title:       "Missing approve content",
+		Description: "test",
+		Status:      TaskStatusSubmitted,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_033", "   ")
+	if err != ErrEmptyTaskRecordContent {
+		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
+	}
+}
+
 func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -408,7 +524,7 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 
 func TestCloseTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -433,7 +549,7 @@ func TestCloseTask_RejectsNonOwner(t *testing.T) {
 
 func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo)
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -453,5 +569,78 @@ func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 	_, err = svc.CloseTask(model.User{ID: "u_owner_001"}, "task_042")
 	if err != ErrInvalidTaskStatusForClose {
 		t.Fatalf("expected ErrInvalidTaskStatusForClose, got %v", err)
+	}
+}
+
+func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_050",
+		Title:       "List records",
+		Description: "test",
+		Status:      TaskStatusSubmitted,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	first, err := recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_050",
+		AuthorID:  "u_worker_001",
+		Type:      model.TaskRecordTypeSubmit,
+		Content:   "first",
+		CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("seed first record: %v", err)
+	}
+	second, err := recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_050",
+		AuthorID:  "u_owner_001",
+		Type:      model.TaskRecordTypeApprove,
+		Content:   "second",
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed second record: %v", err)
+	}
+	_, err = recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_other",
+		AuthorID:  "u_other_001",
+		Type:      model.TaskRecordTypeSubmit,
+		Content:   "ignored",
+		CreatedAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("seed other task record: %v", err)
+	}
+
+	records, err := svc.ListTaskRecords("task_050")
+	if err != nil {
+		t.Fatalf("ListTaskRecords returned error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if records[0].ID != first.ID || records[1].ID != second.ID {
+		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID, second.ID, records[0].ID, records[1].ID)
+	}
+}
+
+func TestListTaskRecords_ReturnsNotFoundForUnknownTask(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+
+	_, err := svc.ListTaskRecords("missing")
+	if err != repository.ErrTaskNotFound {
+		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}
 }

@@ -28,6 +28,10 @@ type assignTaskRequest struct {
 	AssigneeID string `json:"assignee_id"`
 }
 
+type taskRecordRequest struct {
+	Content string `json:"content"`
+}
+
 func NewTaskHandler(taskService *service.TaskService) *TaskHandler {
 	return &TaskHandler{service: taskService}
 }
@@ -72,6 +76,16 @@ func (h *TaskHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+}
+
+func (h *TaskHandler) ListRecords(c *gin.Context) {
+	records, err := h.service.ListTaskRecords(c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"records": records})
 }
 
 func (h *TaskHandler) UpdateBasic(c *gin.Context) {
@@ -129,51 +143,69 @@ func (h *TaskHandler) Start(c *gin.Context) {
 }
 
 func (h *TaskHandler) Submit(c *gin.Context) {
+	var req taskRecordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
 		return
 	}
 
-	task, err := h.service.SubmitTask(currentUser, c.Param("id"))
+	task, record, err := h.service.SubmitTask(currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"task": task})
+	c.JSON(http.StatusOK, gin.H{"task": task, "record": record})
 }
 
 func (h *TaskHandler) Reject(c *gin.Context) {
+	var req taskRecordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
 		return
 	}
 
-	task, err := h.service.RejectTask(currentUser, c.Param("id"))
+	task, record, err := h.service.RejectTask(currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"task": task})
+	c.JSON(http.StatusOK, gin.H{"task": task, "record": record})
 }
 
 func (h *TaskHandler) Approve(c *gin.Context) {
+	var req taskRecordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
 		return
 	}
 
-	task, err := h.service.ApproveTask(currentUser, c.Param("id"))
+	task, record, err := h.service.ApproveTask(currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"task": task})
+	c.JSON(http.StatusOK, gin.H{"task": task, "record": record})
 }
 
 func (h *TaskHandler) Close(c *gin.Context) {
@@ -198,6 +230,7 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrEmptyTaskTitle),
 		errors.Is(err, service.ErrTooShortTaskTitle),
 		errors.Is(err, service.ErrEmptyAssigneeID),
+		errors.Is(err, service.ErrEmptyTaskRecordContent),
 		errors.Is(err, service.ErrInvalidTaskStatusForAssign),
 		errors.Is(err, service.ErrInvalidTaskStatusForStart),
 		errors.Is(err, service.ErrInvalidTaskStatusForSubmit),

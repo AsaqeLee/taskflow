@@ -16,6 +16,7 @@ func New(taskHandler *handler.TaskHandler) *gin.Engine {
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)
 	authenticated.GET("/tasks/:id", taskHandler.GetByID)
+	authenticated.GET("/tasks/:id/records", taskHandler.ListRecords)
 	authenticated.PATCH("/tasks/:id", taskHandler.UpdateBasic)
 	authenticated.POST("/tasks/:id/assign", taskHandler.Assign)
 	authenticated.POST("/tasks/:id/start", taskHandler.Start)

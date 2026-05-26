@@ -89,11 +89,12 @@ TaskFlow 当前更像一个 **任务生命周期后端实验场**，用于沉淀
 - `internal/handler` HTTP 请求处理
 - `internal/service` 业务规则与状态流转
 - `internal/repository` 仓储抽象
-- MongoDB TaskRepository 实现已接入
+- MongoDB TaskRepository / TaskRecordRepository 实现已接入
 - `internal/database` Mongo 客户端初始化
 - 固定测试用户注入中间件
 - Task 基础 CRUD（当前是 create / list / get / update basic）
 - Task 动作型接口：`assign / start / submit / reject / approve / close`
+- 最小 `TaskRecord` 已接入 `submit / reject / approve` 三个协作动作，并支持按任务查询
 - 单元测试已覆盖多条主链和错误分支
 
 ### 当前可运行接口
@@ -103,6 +104,7 @@ TaskFlow 当前更像一个 **任务生命周期后端实验场**，用于沉淀
 - `POST /tasks`
 - `GET /tasks`
 - `GET /tasks/:id`
+- `GET /tasks/:id/records`
 - `PATCH /tasks/:id`
 - `POST /tasks/:id/assign`
 - `POST /tasks/:id/start`
@@ -115,7 +117,7 @@ TaskFlow 当前更像一个 **任务生命周期后端实验场**，用于沉淀
 
 - 完整注册 / 登录系统
 - JWT / Session 认证
-- 评论 / 回执 / 操作记录
+- 完整评论 / 审计体系（当前仅支持最小 TaskRecord 写入与按任务查询）
 - cancel / reactivate / delete 等动作闭环
 - 子任务
 - 多协作者关系
@@ -136,9 +138,9 @@ flowchart LR
     Middleware[internal/middleware.FixedTestUser]
     Handlers[internal/handler<br/>Health / Me / Task]
     Service[internal/service.TaskService]
-    Repo[internal/repository.TaskRepository]
-    MongoRepo[internal/repository.MongoTaskRepository]
-    Models[internal/model<br/>User / Task]
+    Repo[internal/repository<br/>TaskRepository / TaskRecordRepository]
+    MongoRepo[internal/repository<br/>MongoTaskRepository / MongoTaskRecordRepository]
+    Models[internal/model<br/>User / Task / TaskRecord]
     DB[internal/database<br/>Mongo Client]
 
     Main --> Config
@@ -195,8 +197,8 @@ flowchart LR
   - 负责状态流转校验与权限约束
 
 - `internal/repository`
-  - 定义 TaskRepository 抽象
-  - 当前已提供 Mongo 实现，也保留 memory 实现用于测试 / 早期演化
+  - 定义 `TaskRepository` / `TaskRecordRepository` 抽象
+  - 当前已提供 Mongo 与 memory 两套实现，用于环境切换与早期演化
 
 - `internal/model`
   - 定义核心领域结构，例如 `Task` / `User`
@@ -288,10 +290,13 @@ submitted -> assigned
 - `start` 仅允许 `assigned -> in_progress`
 - 仅 assignee 可执行 `submit`
 - `submit` 仅允许 `in_progress -> submitted`
+- `submit` 需要 `content`，并写入一条 `TaskRecord`
 - 仅创建者可执行 `reject`
 - `reject` 仅允许 `submitted -> assigned`
+- `reject` 需要 `content`，并写入一条 `TaskRecord`
 - 仅创建者可执行 `approve`
 - `approve` 仅允许 `submitted -> approved`
+- `approve` 需要 `content`，并写入一条 `TaskRecord`
 - 仅创建者可执行 `close`
 - `close` 仅允许 `approved -> completed`
 
@@ -300,6 +305,7 @@ submitted -> assigned
 - `title` 不能为空
 - `title` 长度至少 3 个字符
 - `assignee_id` 不能为空
+- `submit / reject / approve` 的 `content` 不能为空
 - `task id` 不能为空
 
 ---
@@ -482,6 +488,7 @@ curl http://localhost:8080/me
 - `POST /tasks/:id/assign`（`assignee_id=u_test_001`）
 - `POST /tasks/:id/start`
 - `POST /tasks/:id/submit`
+- `GET /tasks/:id/records`
 - `POST /tasks/:id/approve`
 - `POST /tasks/:id/close`
 
@@ -499,7 +506,7 @@ docker compose up -d
 TASK_REPOSITORY_DRIVER=mongo MONGODB_URI=mongodb://localhost:27017 MONGODB_DATABASE=taskflow go run ./cmd/server
 ```
 
-3. 重新跑同一条最小主链。
+3. 重新跑同一条最小主链（包含 `GET /tasks/:id/records` 验证记录读取）。
 
 如果 memory 能跑、mongo 也能跑，说明当前 TaskFlow 已具备“可恢复项目”的基本条件。
 
@@ -610,19 +617,25 @@ curl -X POST http://localhost:8080/tasks/<task_id>/start
 ### 提交结果
 
 ```bash
-curl -X POST http://localhost:8080/tasks/<task_id>/submit
+curl -X POST http://localhost:8080/tasks/<task_id>/submit \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Delivered the requested output"}'
 ```
 
 ### 驳回任务
 
 ```bash
-curl -X POST http://localhost:8080/tasks/<task_id>/reject
+curl -X POST http://localhost:8080/tasks/<task_id>/reject \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Please revise the handoff"}'
 ```
 
 ### 审核通过
 
 ```bash
-curl -X POST http://localhost:8080/tasks/<task_id>/approve
+curl -X POST http://localhost:8080/tasks/<task_id>/approve \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Accepted after review"}'
 ```
 
 ### 关闭任务
@@ -717,6 +730,17 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 | Response | `{ "task": Task }` |
 | Common errors | `400`：id 为空；`404`：任务不存在；`500`：仓储异常 |
 
+### `GET /tasks/:id/records`
+
+| Item | Value |
+| --- | --- |
+| Purpose | 获取任务协作记录列表 |
+| Auth | Yes |
+| Path params | `id`：任务 ID |
+| Success | `200 OK` |
+| Response | `{ "records": [TaskRecord, ...] }` |
+| Common errors | `400`：id 为空；`404`：任务不存在；`500`：仓储异常 |
+
 ### `PATCH /tasks/:id`
 
 | Item | Value |
@@ -762,10 +786,10 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 | Purpose | 由执行者提交结果 |
 | Auth | Yes |
 | Path params | `id`：任务 ID |
-| Request body | 无 |
+| Request body | `{ "content": "string" }` |
 | Success | `200 OK` |
-| Response | `{ "task": Task }` |
-| Common errors | `400`：id 为空、状态不是 `in_progress`；`403`：当前用户不是 assignee；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
+| Response | `{ "task": Task, "record": TaskRecord }` |
+| Common errors | `400`：JSON 非法、id 为空、content 为空、状态不是 `in_progress`；`403`：当前用户不是 assignee；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
 
 ### `POST /tasks/:id/reject`
 
@@ -774,10 +798,10 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 | Purpose | 由创建者驳回提交结果 |
 | Auth | Yes |
 | Path params | `id`：任务 ID |
-| Request body | 无 |
+| Request body | `{ "content": "string" }` |
 | Success | `200 OK` |
-| Response | `{ "task": Task }` |
-| Common errors | `400`：id 为空、状态不是 `submitted`；`403`：当前用户不是创建者；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
+| Response | `{ "task": Task, "record": TaskRecord }` |
+| Common errors | `400`：JSON 非法、id 为空、content 为空、状态不是 `submitted`；`403`：当前用户不是创建者；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
 
 ### `POST /tasks/:id/approve`
 
@@ -786,10 +810,10 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 | Purpose | 由创建者审核通过 |
 | Auth | Yes |
 | Path params | `id`：任务 ID |
-| Request body | 无 |
+| Request body | `{ "content": "string" }` |
 | Success | `200 OK` |
-| Response | `{ "task": Task }` |
-| Common errors | `400`：id 为空、状态不是 `submitted`；`403`：当前用户不是创建者；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
+| Response | `{ "task": Task, "record": TaskRecord }` |
+| Common errors | `400`：JSON 非法、id 为空、content 为空、状态不是 `submitted`；`403`：当前用户不是创建者；`404`：任务不存在；`500`：上下文缺用户或仓储异常 |
 
 ### `POST /tasks/:id/close`
 
@@ -820,6 +844,21 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 }
 ```
 
+### `TaskRecord` 响应对象
+
+`submit / reject / approve` 成功时会返回一条 `record`，而 `GET /tasks/:id/records` 会返回同结构的列表项：
+
+```json
+{
+  "id": "record_001",
+  "task_id": "681f...",
+  "author_id": "u_test_001",
+  "type": "approve",
+  "content": "Accepted after review",
+  "created_at": "2026-05-11T00:00:00Z"
+}
+```
+
 ---
 
 ## 10. 建议手测路径
@@ -830,8 +869,10 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 2. `POST /tasks/:id/assign`，把 `assignee_id` 设为 `u_test_001`
 3. `POST /tasks/:id/start`
 4. `POST /tasks/:id/submit`
-5. `POST /tasks/:id/approve`
-6. `POST /tasks/:id/close`
+5. `GET /tasks/:id/records`（可选，用于确认提交记录已写入）
+6. `POST /tasks/:id/approve`
+7. `GET /tasks/:id/records`（可选，用于确认审核记录已写入）
+8. `POST /tasks/:id/close`
 
 如果要测试驳回支线：
 
@@ -839,11 +880,13 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 2. 指派给 `u_test_001`
 3. `start`
 4. `submit`
-5. `reject`
-6. 再次 `start`
-7. 再次 `submit`
-8. `approve`
-9. `close`
+5. `GET /tasks/:id/records`（可选）
+6. `reject`
+7. 再次 `start`
+8. 再次 `submit`
+9. `approve`
+10. `GET /tasks/:id/records`（可选）
+11. `close`
 
 ---
 

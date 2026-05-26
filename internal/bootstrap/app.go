@@ -21,12 +21,12 @@ type App struct {
 }
 
 func NewApp(cfg config.Config) (*App, error) {
-	taskRepo, db, err := newTaskRepository(context.Background(), cfg)
+	taskRepo, recordRepo, db, err := newRepositories(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	taskService := service.NewTaskService(taskRepo)
+	taskService := service.NewTaskService(taskRepo, recordRepo)
 	taskHandler := handler.NewTaskHandler(taskService)
 
 	return &App{
@@ -37,16 +37,17 @@ func NewApp(cfg config.Config) (*App, error) {
 	}, nil
 }
 
-func newTaskRepository(ctx context.Context, cfg config.Config) (repository.TaskRepository, *database.Client, error) {
+func newRepositories(ctx context.Context, cfg config.Config) (repository.TaskRepository, repository.TaskRecordRepository, *database.Client, error) {
 	if cfg.RepositoryDriver == config.RepositoryDriverMongo {
 		db, err := database.New(ctx, cfg)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		return repository.NewMongoTaskRepository(db.Mongo.Database(db.DBName).Collection("tasks")), db, nil
+		mongoDB := db.Mongo.Database(db.DBName)
+		return repository.NewMongoTaskRepository(mongoDB.Collection("tasks")), repository.NewMongoTaskRecordRepository(mongoDB.Collection("task_records")), db, nil
 	}
 
-	return repository.NewMemoryTaskRepository(), nil, nil
+	return repository.NewMemoryTaskRepository(), repository.NewMemoryTaskRecordRepository(), nil, nil
 }
 
 func (a *App) Run() error {

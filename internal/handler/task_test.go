@@ -18,7 +18,7 @@ import (
 func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -63,7 +63,7 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -98,7 +98,7 @@ func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 func TestTaskHandler_StartReturnsBadRequestForOpenTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -133,7 +133,8 @@ func TestTaskHandler_StartReturnsBadRequestForOpenTask(t *testing.T) {
 func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -155,7 +156,8 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/submit", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_110/submit", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_110/submit", strings.NewReader(`{"content":"Delivered the requested output"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -165,7 +167,8 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	}
 
 	var resp struct {
-		Task model.Task `json:"task"`
+		Task   model.Task       `json:"task"`
+		Record model.TaskRecord `json:"record"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -173,12 +176,19 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	if resp.Task.Status != service.TaskStatusSubmitted {
 		t.Fatalf("expected status %q, got %q", service.TaskStatusSubmitted, resp.Task.Status)
 	}
+	if resp.Record.Type != model.TaskRecordTypeSubmit {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeSubmit, resp.Record.Type)
+	}
+	if resp.Record.Content != "Delivered the requested output" {
+		t.Fatalf("unexpected record content %q", resp.Record.Content)
+	}
 }
 
 func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -200,7 +210,8 @@ func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/submit", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_111/submit", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_111/submit", strings.NewReader(`{"content":"done"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -213,7 +224,8 @@ func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -235,7 +247,45 @@ func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/submit", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_112/submit", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_112/submit", strings.NewReader(`{"content":"done"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_SubmitReturnsBadRequestForEmptyContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_113",
+		Title:       "Missing content",
+		Description: "test",
+		Status:      service.TaskStatusInProgress,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_test_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/submit", h.Submit)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_113/submit", strings.NewReader(`{"content":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -248,7 +298,8 @@ func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -270,7 +321,8 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/reject", h.Reject)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_120/reject", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_120/reject", strings.NewReader(`{"content":"Please revise the handoff"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -280,7 +332,8 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	}
 
 	var resp struct {
-		Task model.Task `json:"task"`
+		Task   model.Task       `json:"task"`
+		Record model.TaskRecord `json:"record"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -288,12 +341,19 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	if resp.Task.Status != service.TaskStatusAssigned {
 		t.Fatalf("expected status %q, got %q", service.TaskStatusAssigned, resp.Task.Status)
 	}
+	if resp.Record.Type != model.TaskRecordTypeReject {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeReject, resp.Record.Type)
+	}
+	if resp.Record.Content != "Please revise the handoff" {
+		t.Fatalf("unexpected record content %q", resp.Record.Content)
+	}
 }
 
 func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -315,7 +375,8 @@ func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/reject", h.Reject)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_121/reject", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_121/reject", strings.NewReader(`{"content":"needs changes"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -328,7 +389,8 @@ func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -350,7 +412,45 @@ func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/reject", h.Reject)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_122/reject", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_122/reject", strings.NewReader(`{"content":"needs changes"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_RejectReturnsBadRequestForEmptyContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_123",
+		Title:       "Missing reject content",
+		Description: "test",
+		Status:      service.TaskStatusSubmitted,
+		CreatorID:   "u_test_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/reject", h.Reject)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_123/reject", strings.NewReader(`{"content":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -363,7 +463,8 @@ func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -385,7 +486,8 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/approve", h.Approve)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_130/approve", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_130/approve", strings.NewReader(`{"content":"Accepted after review"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -395,7 +497,8 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	}
 
 	var resp struct {
-		Task model.Task `json:"task"`
+		Task   model.Task       `json:"task"`
+		Record model.TaskRecord `json:"record"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -403,12 +506,18 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	if resp.Task.Status != service.TaskStatusApproved {
 		t.Fatalf("expected status %q, got %q", service.TaskStatusApproved, resp.Task.Status)
 	}
+	if resp.Record.Type != model.TaskRecordTypeApprove {
+		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeApprove, resp.Record.Type)
+	}
+	if resp.Record.Content != "Accepted after review" {
+		t.Fatalf("unexpected record content %q", resp.Record.Content)
+	}
 }
 
 func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -430,7 +539,8 @@ func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/approve", h.Approve)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_131/approve", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_131/approve", strings.NewReader(`{"content":"approved"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -443,7 +553,7 @@ func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -465,7 +575,45 @@ func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/approve", h.Approve)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_132/approve", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_132/approve", strings.NewReader(`{"content":"approved"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_ApproveReturnsBadRequestForEmptyContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_133",
+		Title:       "Missing approve content",
+		Description: "test",
+		Status:      service.TaskStatusSubmitted,
+		CreatorID:   "u_test_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/approve", h.Approve)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_133/approve", strings.NewReader(`{"content":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -478,7 +626,7 @@ func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -523,7 +671,7 @@ func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -558,7 +706,7 @@ func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_CloseReturnsBadRequestForNonApprovedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo)
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -587,5 +735,95 @@ func TestTaskHandler_CloseReturnsBadRequestForNonApprovedTask(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := service.NewTaskService(repo, recordRepo)
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_150",
+		Title:       "List records via HTTP",
+		Description: "test",
+		Status:      service.TaskStatusApproved,
+		CreatorID:   "u_test_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	first, err := recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_150",
+		AuthorID:  "u_worker_001",
+		Type:      model.TaskRecordTypeSubmit,
+		Content:   "submitted",
+		CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("seed first record: %v", err)
+	}
+	second, err := recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_150",
+		AuthorID:  "u_test_001",
+		Type:      model.TaskRecordTypeApprove,
+		Content:   "approved",
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed second record: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.GET("/tasks/:id/records", h.ListRecords)
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks/task_150/records", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Records []model.TaskRecord `json:"records"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(resp.Records))
+	}
+	if resp.Records[0].ID != first.ID || resp.Records[1].ID != second.ID {
+		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID, second.ID, resp.Records[0].ID, resp.Records[1].ID)
+	}
+}
+
+func TestTaskHandler_ListRecordsReturnsNotFoundForMissingTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.GET("/tasks/:id/records", h.ListRecords)
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks/missing/records", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d body=%s", w.Code, w.Body.String())
 	}
 }

@@ -20,6 +20,7 @@ var ErrInvalidTaskID = errors.New("task id is required")
 var ErrEmptyTaskTitle = errors.New("task title is required")
 var ErrTooShortTaskTitle = errors.New("task title must be at least 3 characters")
 var ErrEmptyAssigneeID = errors.New("assignee id is required")
+var ErrEmptyTaskRecordContent = errors.New("task record content is required")
 var ErrForbiddenAssign = errors.New("current user cannot assign task")
 var ErrInvalidTaskStatusForAssign = errors.New("task status does not allow assign")
 var ErrForbiddenStart = errors.New("current user cannot start task")
@@ -34,11 +35,12 @@ var ErrForbiddenClose = errors.New("current user cannot close task")
 var ErrInvalidTaskStatusForClose = errors.New("task status does not allow close")
 
 type TaskService struct {
-	repo repository.TaskRepository
+	repo       repository.TaskRepository
+	recordRepo repository.TaskRecordRepository
 }
 
-func NewTaskService(repo repository.TaskRepository) *TaskService {
-	return &TaskService{repo: repo}
+func NewTaskService(repo repository.TaskRepository, recordRepo repository.TaskRecordRepository) *TaskService {
+	return &TaskService{repo: repo, recordRepo: recordRepo}
 }
 
 func (s *TaskService) CreateTask(currentUser model.User, title, description string) (model.Task, error) {
@@ -74,6 +76,19 @@ func (s *TaskService) GetTask(id string) (model.Task, error) {
 
 func (s *TaskService) ListTasks() ([]model.Task, error) {
 	return s.repo.List()
+}
+
+func (s *TaskService) ListTaskRecords(taskID string) ([]model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, ErrInvalidTaskID
+	}
+
+	if _, err := s.repo.GetByID(taskID); err != nil {
+		return nil, err
+	}
+
+	return s.recordRepo.ListByTaskID(taskID)
 }
 
 func (s *TaskService) UpdateTaskBasic(id, title, description string) (model.Task, error) {
@@ -158,79 +173,142 @@ func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Ta
 	return s.repo.Update(task)
 }
 
-func (s *TaskService) SubmitTask(currentUser model.User, taskID string) (model.Task, error) {
+func (s *TaskService) SubmitTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return model.Task{}, ErrInvalidTaskID
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
 	}
 
 	task, err := s.repo.GetByID(taskID)
 	if err != nil {
-		return model.Task{}, err
+		return model.Task{}, model.TaskRecord{}, err
 	}
 
 	if task.Status != TaskStatusInProgress {
-		return model.Task{}, ErrInvalidTaskStatusForSubmit
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForSubmit
 	}
 
 	if task.AssigneeID != currentUser.ID {
-		return model.Task{}, ErrForbiddenSubmit
+		return model.Task{}, model.TaskRecord{}, ErrForbiddenSubmit
 	}
 
 	task.Status = TaskStatusSubmitted
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	record, err := s.recordRepo.Create(model.TaskRecord{
+		TaskID:    task.ID,
+		AuthorID:  currentUser.ID,
+		Type:      model.TaskRecordTypeSubmit,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	return updatedTask, record, nil
 }
 
-func (s *TaskService) RejectTask(currentUser model.User, taskID string) (model.Task, error) {
+func (s *TaskService) RejectTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return model.Task{}, ErrInvalidTaskID
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
 	}
 
 	task, err := s.repo.GetByID(taskID)
 	if err != nil {
-		return model.Task{}, err
+		return model.Task{}, model.TaskRecord{}, err
 	}
 
 	if task.Status != TaskStatusSubmitted {
-		return model.Task{}, ErrInvalidTaskStatusForReject
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForReject
 	}
 
 	if task.CreatorID != currentUser.ID {
-		return model.Task{}, ErrForbiddenReject
+		return model.Task{}, model.TaskRecord{}, ErrForbiddenReject
 	}
 
 	task.Status = TaskStatusAssigned
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	record, err := s.recordRepo.Create(model.TaskRecord{
+		TaskID:    task.ID,
+		AuthorID:  currentUser.ID,
+		Type:      model.TaskRecordTypeReject,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	return updatedTask, record, nil
 }
 
-func (s *TaskService) ApproveTask(currentUser model.User, taskID string) (model.Task, error) {
+func (s *TaskService) ApproveTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return model.Task{}, ErrInvalidTaskID
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
 	}
 
 	task, err := s.repo.GetByID(taskID)
 	if err != nil {
-		return model.Task{}, err
+		return model.Task{}, model.TaskRecord{}, err
 	}
 
 	if task.Status != TaskStatusSubmitted {
-		return model.Task{}, ErrInvalidTaskStatusForApprove
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForApprove
 	}
 
 	if task.CreatorID != currentUser.ID {
-		return model.Task{}, ErrForbiddenApprove
+		return model.Task{}, model.TaskRecord{}, ErrForbiddenApprove
 	}
 
 	task.Status = TaskStatusApproved
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	record, err := s.recordRepo.Create(model.TaskRecord{
+		TaskID:    task.ID,
+		AuthorID:  currentUser.ID,
+		Type:      model.TaskRecordTypeApprove,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	return updatedTask, record, nil
 }
 
 func (s *TaskService) CloseTask(currentUser model.User, taskID string) (model.Task, error) {
