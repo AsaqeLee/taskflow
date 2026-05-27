@@ -993,30 +993,33 @@ go test ./...
 
 ### 后续再考虑的方向
 
-#### A. 补任务记录能力
+#### A. 固定最小 `TaskRecord` slice，而不是从零重新设计记录能力
 
-- `TaskRecord` / `AuditLog`
-- 记录谁在什么时间做了什么动作
-- 为后续评论、驳回原因、审核意见打基础
+- 当前 `submit / reject / approve` 已会写入 `TaskRecord`
+- 当前已提供 `GET /tasks/:id/records`
+- 下一步更适合继续判断：哪些动作仍只改状态，哪些动作也应留下正文或 `AuditLog`
 
-#### B. 补结果型回报结构
+#### B. 继续收口 dual-driver 恢复流程
 
-例如：
+- 在 `memory` 模式下固定最小主链验证步骤
+- 在 `mongo` 模式下补一次真实端到端验证
+- 把运行前提、环境变量与排错路径写成稳定文档
 
-- submit summary
-- reject reason
-- approve note
-- close note
+#### C. 补生命周期剩余动作
 
-这样动作接口就不只是改状态，而是开始承载“业务语义”。
+- `cancel`
+- `reactivate`
+- `delete`
 
-#### C. 补更真实的身份系统
+这样任务生命周期才会从“主闭环已通”继续走向“生命周期更完整”。
+
+#### D. 补更真实的身份系统
 
 - 替换固定测试用户
 - 引入真实用户来源
 - 逐步把 `creator / assignee / owner` 的边界拉清楚
 
-#### D. 完善 Mongo 持久化配套
+#### E. 完善 Mongo 持久化配套
 
 - 索引
 - 数据约束

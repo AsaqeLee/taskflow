@@ -827,3 +827,202 @@ func TestTaskHandler_ListRecordsReturnsNotFoundForMissingTask(t *testing.T) {
 		t.Fatalf("expected status 404, got %d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_cancel_1",
+		Title:       "Cancel Task",
+		Status:      service.TaskStatusOpen,
+		CreatorID:   "u_test_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/cancel", h.Cancel)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_cancel_1/cancel", strings.NewReader(`{"content":"Scope changed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Task   model.Task       `json:"task"`
+		Record model.TaskRecord `json:"record"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Task.Status != service.TaskStatusCancelled {
+		t.Fatalf("expected status cancelled, got %q", resp.Task.Status)
+	}
+	if resp.Record.Type != model.TaskRecordTypeCancel {
+		t.Fatalf("expected record type cancel, got %q", resp.Record.Type)
+	}
+}
+
+func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_cancel_2",
+		Title:       "Cancel Task Error",
+		Status:      service.TaskStatusOpen,
+		CreatorID:   "u_owner_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/cancel", h.Cancel)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_cancel_2/cancel", strings.NewReader(`{"content":"Scope changed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_react_1",
+		Title:       "Reactivate Task",
+		Status:      service.TaskStatusCancelled,
+		CreatorID:   "u_test_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.POST("/tasks/:id/reactivate", h.Reactivate)
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_react_1/reactivate", strings.NewReader(`{"content":"Need to revisit"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Task   model.Task       `json:"task"`
+		Record model.TaskRecord `json:"record"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Task.Status != service.TaskStatusOpen {
+		t.Fatalf("expected status open, got %q", resp.Task.Status)
+	}
+}
+
+func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_del_1",
+		Title:       "Delete Task",
+		Status:      service.TaskStatusOpen,
+		CreatorID:   "u_test_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.DELETE("/tasks/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/task_del_1", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// Verify task is gone
+	_, err = repo.GetByID("task_del_1")
+	if err != repository.ErrTaskNotFound {
+		t.Fatalf("expected task to be deleted")
+	}
+}
+
+func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_del_2",
+		Title:       "Delete Task Forbidden",
+		Status:      service.TaskStatusOpen,
+		CreatorID:   "u_owner_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.DELETE("/tasks/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/task_del_2", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}

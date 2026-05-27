@@ -224,6 +224,66 @@ func (h *TaskHandler) Close(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"task": task})
 }
 
+func (h *TaskHandler) Cancel(c *gin.Context) {
+	var req taskRecordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, record, err := h.service.CancelTask(currentUser, c.Param("id"), req.Content)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task, "record": record})
+}
+
+func (h *TaskHandler) Reactivate(c *gin.Context) {
+	var req taskRecordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	task, record, err := h.service.ReactivateTask(currentUser, c.Param("id"), req.Content)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"task": task, "record": record})
+}
+
+func (h *TaskHandler) Delete(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		return
+	}
+
+	err := h.service.DeleteTask(currentUser, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "task and records successfully deleted"})
+}
+
 func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTaskID),
@@ -236,14 +296,19 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrInvalidTaskStatusForSubmit),
 		errors.Is(err, service.ErrInvalidTaskStatusForReject),
 		errors.Is(err, service.ErrInvalidTaskStatusForApprove),
-		errors.Is(err, service.ErrInvalidTaskStatusForClose):
+		errors.Is(err, service.ErrInvalidTaskStatusForClose),
+		errors.Is(err, service.ErrInvalidTaskStatusForCancel),
+		errors.Is(err, service.ErrInvalidTaskStatusForReactivate):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrForbiddenAssign),
 		errors.Is(err, service.ErrForbiddenStart),
 		errors.Is(err, service.ErrForbiddenSubmit),
 		errors.Is(err, service.ErrForbiddenReject),
 		errors.Is(err, service.ErrForbiddenApprove),
-		errors.Is(err, service.ErrForbiddenClose):
+		errors.Is(err, service.ErrForbiddenClose),
+		errors.Is(err, service.ErrForbiddenCancel),
+		errors.Is(err, service.ErrForbiddenReactivate),
+		errors.Is(err, service.ErrForbiddenDelete):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 	case errors.Is(err, repository.ErrTaskNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

@@ -15,6 +15,7 @@ const TaskStatusInProgress = "in_progress"
 const TaskStatusSubmitted = "submitted"
 const TaskStatusApproved = "approved"
 const TaskStatusCompleted = "completed"
+const TaskStatusCancelled = "cancelled"
 
 var ErrInvalidTaskID = errors.New("task id is required")
 var ErrEmptyTaskTitle = errors.New("task title is required")
@@ -33,6 +34,11 @@ var ErrForbiddenApprove = errors.New("current user cannot approve task")
 var ErrInvalidTaskStatusForApprove = errors.New("task status does not allow approve")
 var ErrForbiddenClose = errors.New("current user cannot close task")
 var ErrInvalidTaskStatusForClose = errors.New("task status does not allow close")
+var ErrForbiddenCancel = errors.New("current user cannot cancel task")
+var ErrInvalidTaskStatusForCancel = errors.New("task status does not allow cancel")
+var ErrForbiddenReactivate = errors.New("current user cannot reactivate task")
+var ErrInvalidTaskStatusForReactivate = errors.New("task status does not allow reactivate")
+var ErrForbiddenDelete = errors.New("current user cannot delete task")
 
 type TaskService struct {
 	repo       repository.TaskRepository
@@ -334,4 +340,123 @@ func (s *TaskService) CloseTask(currentUser model.User, taskID string) (model.Ta
 	task.UpdatedAt = time.Now().UTC()
 
 	return s.repo.Update(task)
+}
+
+func (s *TaskService) CancelTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	if task.Status != TaskStatusOpen && task.Status != TaskStatusAssigned &&
+		task.Status != TaskStatusInProgress && task.Status != TaskStatusSubmitted {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForCancel
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return model.Task{}, model.TaskRecord{}, ErrForbiddenCancel
+	}
+
+	task.Status = TaskStatusCancelled
+	task.UpdatedAt = time.Now().UTC()
+
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	record, err := s.recordRepo.Create(model.TaskRecord{
+		TaskID:    task.ID,
+		AuthorID:  currentUser.ID,
+		Type:      model.TaskRecordTypeCancel,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) ReactivateTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	if task.Status != TaskStatusCancelled && task.Status != TaskStatusCompleted {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForReactivate
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return model.Task{}, model.TaskRecord{}, ErrForbiddenReactivate
+	}
+
+	if task.AssigneeID != "" {
+		task.Status = TaskStatusAssigned
+	} else {
+		task.Status = TaskStatusOpen
+	}
+	task.UpdatedAt = time.Now().UTC()
+
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	record, err := s.recordRepo.Create(model.TaskRecord{
+		TaskID:    task.ID,
+		AuthorID:  currentUser.ID,
+		Type:      model.TaskRecordTypeReactivate,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) DeleteTask(currentUser model.User, taskID string) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(taskID)
+	if err != nil {
+		return err
+	}
+
+	if task.CreatorID != currentUser.ID {
+		return ErrForbiddenDelete
+	}
+
+	if err := s.repo.Delete(taskID); err != nil {
+		return err
+	}
+
+	return s.recordRepo.DeleteByTaskID(taskID)
 }

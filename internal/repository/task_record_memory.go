@@ -15,6 +15,7 @@ var ErrTaskRecordNotFound = errors.New("task record not found")
 type TaskRecordRepository interface {
 	Create(record model.TaskRecord) (model.TaskRecord, error)
 	ListByTaskID(taskID string) ([]model.TaskRecord, error)
+	DeleteByTaskID(taskID string) error
 }
 
 type MemoryTaskRecordRepository struct {
@@ -62,4 +63,16 @@ func (r *MemoryTaskRecordRepository) ListByTaskID(taskID string) ([]model.TaskRe
 	})
 
 	return result, nil
+}
+
+func (r *MemoryTaskRecordRepository) DeleteByTaskID(taskID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for id, record := range r.records {
+		if record.TaskID == taskID {
+			delete(r.records, id)
+		}
+	}
+	return nil
 }

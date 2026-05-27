@@ -141,3 +141,18 @@ func documentToTask(doc taskDocument) model.Task {
 		UpdatedAt:   doc.UpdatedAt,
 	}
 }
+
+func (r *MongoTaskRepository) Delete(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+	defer cancel()
+
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return ErrTaskNotFound
+	}
+
+	return nil
+}

@@ -13,4 +13,5 @@ type TaskRepository interface {
 	GetByID(id string) (model.Task, error)
 	List() ([]model.Task, error)
 	Update(task model.Task) (model.Task, error)
+	Delete(id string) error
 }

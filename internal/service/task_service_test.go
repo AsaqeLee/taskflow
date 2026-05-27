@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -642,5 +643,242 @@ func TestListTaskRecords_ReturnsNotFoundForUnknownTask(t *testing.T) {
 	_, err := svc.ListTaskRecords("missing")
 	if err != repository.ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
+	}
+}
+
+func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	states := []string{TaskStatusOpen, TaskStatusAssigned, TaskStatusInProgress, TaskStatusSubmitted}
+	for i, startStatus := range states {
+		taskID := fmt.Sprintf("task_cancel_%d", i)
+		_, err := repo.Create(model.Task{
+			ID:          taskID,
+			Title:       "Active Task " + startStatus,
+			Status:      startStatus,
+			CreatorID:   "u_owner_001",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
+		if err != nil {
+			t.Fatalf("seed task: %v", err)
+		}
+
+		updatedTask, record, err := svc.CancelTask(model.User{ID: "u_owner_001"}, taskID, "Cancelling this task due to scope change")
+		if err != nil {
+			t.Fatalf("CancelTask from %s returned error: %v", startStatus, err)
+		}
+
+		if updatedTask.Status != TaskStatusCancelled {
+			t.Fatalf("expected status %q, got %q", TaskStatusCancelled, updatedTask.Status)
+		}
+		if record.Type != model.TaskRecordTypeCancel {
+			t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeCancel, record.Type)
+		}
+		if record.Content != "Cancelling this task due to scope change" {
+			t.Fatalf("unexpected record content %q", record.Content)
+		}
+	}
+}
+
+func TestCancelTask_RejectsNonOwner(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:        "task_cancel_err",
+		Title:     "Cancel Error",
+		Status:    TaskStatusOpen,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.CancelTask(model.User{ID: "u_other_001"}, "task_cancel_err", "cancel")
+	if err != ErrForbiddenCancel {
+		t.Fatalf("expected ErrForbiddenCancel, got %v", err)
+	}
+}
+
+func TestCancelTask_RejectsCompletedTask(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:        "task_cancel_comp",
+		Title:     "Cancel Completed",
+		Status:    TaskStatusCompleted,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.CancelTask(model.User{ID: "u_owner_001"}, "task_cancel_comp", "cancel")
+	if err != ErrInvalidTaskStatusForCancel {
+		t.Fatalf("expected ErrInvalidTaskStatusForCancel, got %v", err)
+	}
+}
+
+func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	// 1. Reactivate task with no assignee (should go to open)
+	_, err := repo.Create(model.Task{
+		ID:          "task_react_open",
+		Title:       "React Open",
+		Status:      TaskStatusCancelled,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	task1, rec1, err := svc.ReactivateTask(model.User{ID: "u_owner_001"}, "task_react_open", "reactivating open task")
+	if err != nil {
+		t.Fatalf("ReactivateTask open: %v", err)
+	}
+	if task1.Status != TaskStatusOpen {
+		t.Fatalf("expected status open, got %q", task1.Status)
+	}
+	if rec1.Type != model.TaskRecordTypeReactivate {
+		t.Fatalf("expected record type reactivate, got %q", rec1.Type)
+	}
+
+	// 2. Reactivate task with assignee (should go to assigned)
+	_, err = repo.Create(model.Task{
+		ID:          "task_react_assign",
+		Title:       "React Assign",
+		Status:      TaskStatusCompleted,
+		CreatorID:   "u_owner_001",
+		AssigneeID:  "u_worker_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	task2, rec2, err := svc.ReactivateTask(model.User{ID: "u_owner_001"}, "task_react_assign", "reactivating assigned task")
+	if err != nil {
+		t.Fatalf("ReactivateTask assigned: %v", err)
+	}
+	if task2.Status != TaskStatusAssigned {
+		t.Fatalf("expected status assigned, got %q", task2.Status)
+	}
+	if rec2.Content != "reactivating assigned task" {
+		t.Fatalf("unexpected record content %q", rec2.Content)
+	}
+}
+
+func TestReactivateTask_RejectsNonOwner(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:        "task_react_err",
+		Title:     "React Error",
+		Status:    TaskStatusCancelled,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, _, err = svc.ReactivateTask(model.User{ID: "u_other_001"}, "task_react_err", "reactivate")
+	if err != ErrForbiddenReactivate {
+		t.Fatalf("expected ErrForbiddenReactivate, got %v", err)
+	}
+}
+
+func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := NewTaskService(repo, recordRepo)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:        "task_del",
+		Title:     "To Delete",
+		Status:    TaskStatusOpen,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, err = recordRepo.Create(model.TaskRecord{
+		TaskID:    "task_del",
+		AuthorID:  "u_owner_001",
+		Type:      model.TaskRecordTypeSubmit,
+		Content:   "record content",
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed record: %v", err)
+	}
+
+	err = svc.DeleteTask(model.User{ID: "u_owner_001"}, "task_del")
+	if err != nil {
+		t.Fatalf("DeleteTask returned error: %v", err)
+	}
+
+	// Verify task is gone
+	_, err = repo.GetByID("task_del")
+	if err != repository.ErrTaskNotFound {
+		t.Fatalf("expected task to be deleted, got error: %v", err)
+	}
+
+	// Verify records are gone
+	records, err := recordRepo.ListByTaskID("task_del")
+	if err != nil {
+		t.Fatalf("ListByTaskID returned error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected all records to be deleted, got %d", len(records))
+	}
+}
+
+func TestDeleteTask_RejectsNonOwner(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:        "task_del_err",
+		Title:     "Delete Error",
+		Status:    TaskStatusOpen,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	err = svc.DeleteTask(model.User{ID: "u_other_001"}, "task_del_err")
+	if err != ErrForbiddenDelete {
+		t.Fatalf("expected ErrForbiddenDelete, got %v", err)
 	}
 }

@@ -73,3 +73,15 @@ func (r *MemoryTaskRepository) Update(task model.Task) (model.Task, error) {
 	r.tasks[task.ID] = task
 	return task, nil
 }
+
+func (r *MemoryTaskRepository) Delete(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.tasks[id]; !ok {
+		return ErrTaskNotFound
+	}
+
+	delete(r.tasks, id)
+	return nil
+}

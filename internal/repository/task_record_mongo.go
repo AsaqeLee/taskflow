@@ -96,3 +96,11 @@ func taskRecordDocumentToModel(doc taskRecordDocument) model.TaskRecord {
 		CreatedAt: doc.CreatedAt,
 	}
 }
+
+func (r *MongoTaskRecordRepository) DeleteByTaskID(taskID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+	defer cancel()
+
+	_, err := r.collection.DeleteMany(ctx, bson.M{"task_id": taskID})
+	return err
+}

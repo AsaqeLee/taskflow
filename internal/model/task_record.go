@@ -5,6 +5,8 @@ import "time"
 const TaskRecordTypeSubmit = "submit"
 const TaskRecordTypeReject = "reject"
 const TaskRecordTypeApprove = "approve"
+const TaskRecordTypeCancel = "cancel"
+const TaskRecordTypeReactivate = "reactivate"
 
 type TaskRecord struct {
 	ID        string    `json:"id"`
