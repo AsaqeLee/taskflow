@@ -7,6 +7,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/config"
 	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/handler"
+	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/router"
 	"github.com/AsaqeLee/taskflow/internal/service"
@@ -14,43 +15,96 @@ import (
 )
 
 type App struct {
-	config      config.Config
-	engine      *gin.Engine
-	database    *database.Client
-	taskHandler *handler.TaskHandler
+	config          config.Config
+	engine          *gin.Engine
+	database        *database.Client
+	taskHandler     *handler.TaskHandler
+	identityHandler *handler.IdentityHandler
 }
 
 func NewApp(cfg config.Config) (*App, error) {
-	taskRepo, recordRepo, auditRepo, db, err := newRepositories(context.Background(), cfg)
+	taskRepo, recordRepo, auditRepo, userRepo, db, err := newRepositories(context.Background(), cfg)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := seedDefaultUsers(userRepo); err != nil {
 		return nil, err
 	}
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo)
 	taskHandler := handler.NewTaskHandler(taskService)
+	identityHandler := handler.NewIdentityHandler(userRepo)
 
 	return &App{
-		config:      cfg,
-		engine:      router.New(taskHandler),
-		database:    db,
-		taskHandler: taskHandler,
+		config:          cfg,
+		engine:          router.New(taskHandler, identityHandler, userRepo),
+		database:        db,
+		taskHandler:     taskHandler,
+		identityHandler: identityHandler,
 	}, nil
 }
 
-func newRepositories(ctx context.Context, cfg config.Config) (repository.TaskRepository, repository.TaskRecordRepository, repository.AuditLogRepository, *database.Client, error) {
+func newRepositories(ctx context.Context, cfg config.Config) (
+	repository.TaskRepository,
+	repository.TaskRecordRepository,
+	repository.AuditLogRepository,
+	repository.UserRepository,
+	*database.Client,
+	error,
+) {
 	if cfg.RepositoryDriver == config.RepositoryDriverMongo {
 		db, err := database.New(ctx, cfg)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 		mongoDB := db.Mongo.Database(db.DBName)
 		return repository.NewMongoTaskRepository(mongoDB.Collection("tasks")),
 			repository.NewMongoTaskRecordRepository(mongoDB.Collection("task_records")),
 			repository.NewMongoAuditLogRepository(mongoDB.Collection("audit_logs")),
+			repository.NewMongoUserRepository(mongoDB.Collection("users")),
 			db, nil
 	}
 
-	return repository.NewMemoryTaskRepository(), repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository(), nil, nil
+	return repository.NewMemoryTaskRepository(),
+		repository.NewMemoryTaskRecordRepository(),
+		repository.NewMemoryAuditLogRepository(),
+		repository.NewMemoryUserRepository(),
+		nil, nil
+}
+
+func seedDefaultUsers(userRepo repository.UserRepository) error {
+	defaultUsers := []model.User{
+		{
+			ID:    "u_test_001",
+			Name:  "Test Creator",
+			Role:  "owner",
+			Token: "token_creator",
+		},
+		{
+			ID:    "u_test_002",
+			Name:  "Test Assignee",
+			Role:  "human",
+			Token: "token_assignee",
+		},
+		{
+			ID:    "u_agent_001",
+			Name:  "Hermes Agent",
+			Role:  "agent",
+			Token: "token_agent",
+		},
+	}
+
+	for _, u := range defaultUsers {
+		_, err := userRepo.FindByID(u.ID)
+		if err != nil {
+			_, err = userRepo.Create(u)
+			if err != nil {
+				return fmt.Errorf("failed to seed user %s: %w", u.ID, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (a *App) Run() error {

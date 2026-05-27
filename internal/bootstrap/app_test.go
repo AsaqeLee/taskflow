@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewRepositoriesUsesMemoryWhenConfigured(t *testing.T) {
-	taskRepo, recordRepo, auditRepo, db, err := newRepositories(context.Background(), config.Config{RepositoryDriver: config.RepositoryDriverMemory})
+	taskRepo, recordRepo, auditRepo, userRepo, db, err := newRepositories(context.Background(), config.Config{RepositoryDriver: config.RepositoryDriverMemory})
 	if err != nil {
 		t.Fatalf("newRepositories returned error: %v", err)
 	}
@@ -26,10 +26,13 @@ func TestNewRepositoriesUsesMemoryWhenConfigured(t *testing.T) {
 	if _, ok := auditRepo.(*repository.MemoryAuditLogRepository); !ok {
 		t.Fatalf("expected MemoryAuditLogRepository, got %T", auditRepo)
 	}
+	if _, ok := userRepo.(*repository.MemoryUserRepository); !ok {
+		t.Fatalf("expected MemoryUserRepository, got %T", userRepo)
+	}
 }
 
 func TestNewRepositoriesReturnsErrorWhenMongoConnectionFails(t *testing.T) {
-	_, _, _, _, err := newRepositories(context.Background(), config.Config{
+	_, _, _, _, _, err := newRepositories(context.Background(), config.Config{
 		RepositoryDriver: config.RepositoryDriverMongo,
 		MongoURI:         "mongodb://127.0.0.1:1",
 		MongoDB:          "taskflow_test",

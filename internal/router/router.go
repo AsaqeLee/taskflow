@@ -3,16 +3,26 @@ package router
 import (
 	"github.com/AsaqeLee/taskflow/internal/handler"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
+	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
-func New(taskHandler *handler.TaskHandler) *gin.Engine {
+func New(
+	taskHandler *handler.TaskHandler,
+	identityHandler *handler.IdentityHandler,
+	userRepo repository.UserRepository,
+) *gin.Engine {
 	r := gin.Default()
 	r.GET("/health", handler.Health)
 
+	// Public routes
+	r.POST("/users", identityHandler.Register)
+
+	// Authenticated routes
 	authenticated := r.Group("/")
-	authenticated.Use(middleware.FixedTestUser())
-	authenticated.GET("/me", handler.Me)
+	authenticated.Use(middleware.UserAuth(userRepo))
+
+	authenticated.GET("/me", identityHandler.Me)
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)
 	authenticated.GET("/tasks/:id", taskHandler.GetByID)
