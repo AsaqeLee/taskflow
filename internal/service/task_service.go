@@ -43,10 +43,11 @@ var ErrForbiddenDelete = errors.New("current user cannot delete task")
 type TaskService struct {
 	repo       repository.TaskRepository
 	recordRepo repository.TaskRecordRepository
+	auditRepo  repository.AuditLogRepository
 }
 
-func NewTaskService(repo repository.TaskRepository, recordRepo repository.TaskRecordRepository) *TaskService {
-	return &TaskService{repo: repo, recordRepo: recordRepo}
+func NewTaskService(repo repository.TaskRepository, recordRepo repository.TaskRecordRepository, auditRepo repository.AuditLogRepository) *TaskService {
+	return &TaskService{repo: repo, recordRepo: recordRepo, auditRepo: auditRepo}
 }
 
 func (s *TaskService) CreateTask(currentUser model.User, title, description string) (model.Task, error) {
@@ -69,7 +70,22 @@ func (s *TaskService) CreateTask(currentUser model.User, title, description stri
 		UpdatedAt:   now,
 	}
 
-	return s.repo.Create(task)
+	createdTask, err := s.repo.Create(task)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    createdTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionCreated,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	return createdTask, nil
 }
 
 func (s *TaskService) GetTask(id string) (model.Task, error) {
@@ -151,7 +167,22 @@ func (s *TaskService) AssignTask(currentUser model.User, taskID, assigneeID stri
 	task.Status = TaskStatusAssigned
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionAssigned,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	return updatedTask, nil
 }
 
 func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Task, error) {
@@ -176,7 +207,22 @@ func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Ta
 	task.Status = TaskStatusInProgress
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionStarted,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	return updatedTask, nil
 }
 
 func (s *TaskService) SubmitTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
@@ -216,6 +262,16 @@ func (s *TaskService) SubmitTask(currentUser model.User, taskID, content string)
 		AuthorID:  currentUser.ID,
 		Type:      model.TaskRecordTypeSubmit,
 		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionSubmitted,
 		CreatedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -268,6 +324,16 @@ func (s *TaskService) RejectTask(currentUser model.User, taskID, content string)
 		return model.Task{}, model.TaskRecord{}, err
 	}
 
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionRejected,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
 	return updatedTask, record, nil
 }
 
@@ -314,6 +380,16 @@ func (s *TaskService) ApproveTask(currentUser model.User, taskID, content string
 		return model.Task{}, model.TaskRecord{}, err
 	}
 
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionApproved,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
 	return updatedTask, record, nil
 }
 
@@ -339,7 +415,22 @@ func (s *TaskService) CloseTask(currentUser model.User, taskID string) (model.Ta
 	task.Status = TaskStatusCompleted
 	task.UpdatedAt = time.Now().UTC()
 
-	return s.repo.Update(task)
+	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionClosed,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, err
+	}
+
+	return updatedTask, nil
 }
 
 func (s *TaskService) CancelTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
@@ -380,6 +471,16 @@ func (s *TaskService) CancelTask(currentUser model.User, taskID, content string)
 		AuthorID:  currentUser.ID,
 		Type:      model.TaskRecordTypeCancel,
 		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionCancelled,
 		CreatedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -436,6 +537,16 @@ func (s *TaskService) ReactivateTask(currentUser model.User, taskID, content str
 		return model.Task{}, model.TaskRecord{}, err
 	}
 
+	_, err = s.auditRepo.Create(model.AuditLog{
+		TaskID:    updatedTask.ID,
+		ActorID:   currentUser.ID,
+		Action:    model.AuditActionReopened,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+
 	return updatedTask, record, nil
 }
 
@@ -458,5 +569,22 @@ func (s *TaskService) DeleteTask(currentUser model.User, taskID string) error {
 		return err
 	}
 
-	return s.recordRepo.DeleteByTaskID(taskID)
+	if err := s.recordRepo.DeleteByTaskID(taskID); err != nil {
+		return err
+	}
+
+	return s.auditRepo.DeleteByTaskID(taskID)
+}
+
+func (s *TaskService) ListTaskAuditLogs(taskID string) ([]model.AuditLog, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, ErrInvalidTaskID
+	}
+
+	if _, err := s.repo.GetByID(taskID); err != nil {
+		return nil, err
+	}
+
+	return s.auditRepo.ListByTaskID(taskID)
 }

@@ -27,6 +27,7 @@ func New(taskHandler *handler.TaskHandler) *gin.Engine {
 	authenticated.POST("/tasks/:id/cancel", taskHandler.Cancel)
 	authenticated.POST("/tasks/:id/reactivate", taskHandler.Reactivate)
 	authenticated.DELETE("/tasks/:id", taskHandler.Delete)
+	authenticated.GET("/tasks/:id/audit_logs", taskHandler.ListAuditLogs)
 
 	return r
 }

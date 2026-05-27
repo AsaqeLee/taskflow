@@ -18,7 +18,7 @@ import (
 func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -63,7 +63,7 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -98,7 +98,7 @@ func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 func TestTaskHandler_StartReturnsBadRequestForOpenTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -134,7 +134,7 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -188,7 +188,7 @@ func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -225,7 +225,7 @@ func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -262,7 +262,7 @@ func TestTaskHandler_SubmitReturnsBadRequestForEmptyContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -299,7 +299,7 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -353,7 +353,7 @@ func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -390,7 +390,7 @@ func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -427,7 +427,7 @@ func TestTaskHandler_RejectReturnsBadRequestForEmptyContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -464,7 +464,7 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -517,7 +517,7 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -553,7 +553,7 @@ func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -590,7 +590,7 @@ func TestTaskHandler_ApproveReturnsBadRequestForEmptyContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -626,7 +626,7 @@ func TestTaskHandler_ApproveReturnsBadRequestForEmptyContent(t *testing.T) {
 func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -671,7 +671,7 @@ func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -706,7 +706,7 @@ func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_CloseReturnsBadRequestForNonApprovedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -742,7 +742,7 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := service.NewTaskService(repo, recordRepo)
+	svc := service.NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -811,7 +811,7 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 func TestTaskHandler_ListRecordsReturnsNotFoundForMissingTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 
 	r := gin.New()
@@ -831,7 +831,7 @@ func TestTaskHandler_ListRecordsReturnsNotFoundForMissingTask(t *testing.T) {
 func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -879,7 +879,7 @@ func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -913,7 +913,7 @@ func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
 func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -958,7 +958,7 @@ func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -997,7 +997,7 @@ func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repository.NewMemoryTaskRepository()
-	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
@@ -1024,5 +1024,82 @@ func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected status 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTaskHandler_ListAuditLogsReturnsLogs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	auditRepo := repository.NewMemoryAuditLogRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), auditRepo)
+	h := NewTaskHandler(svc)
+	now := time.Now().UTC()
+
+	_, err := repo.Create(model.Task{
+		ID:          "task_audit_1",
+		Title:       "Audit Log API",
+		Status:      service.TaskStatusOpen,
+		CreatorID:   "u_test_001",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	_, err = auditRepo.Create(model.AuditLog{
+		TaskID:    "task_audit_1",
+		ActorID:   "u_test_001",
+		Action:    model.AuditActionCreated,
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("seed audit log: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.GET("/tasks/:id/audit_logs", h.ListAuditLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks/task_audit_1/audit_logs", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		AuditLogs []model.AuditLog `json:"audit_logs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.AuditLogs) != 1 {
+		t.Fatalf("expected 1 audit log, got %d", len(resp.AuditLogs))
+	}
+	if resp.AuditLogs[0].Action != model.AuditActionCreated {
+		t.Fatalf("expected action %q, got %q", model.AuditActionCreated, resp.AuditLogs[0].Action)
+	}
+}
+
+func TestTaskHandler_ListAuditLogsReturnsNotFoundForMissingTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := repository.NewMemoryTaskRepository()
+	svc := service.NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
+	h := NewTaskHandler(svc)
+
+	r := gin.New()
+	r.Use(middleware.FixedTestUser())
+	r.GET("/tasks/:id/audit_logs", h.ListAuditLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks/missing/audit_logs", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d body=%s", w.Code, w.Body.String())
 	}
 }

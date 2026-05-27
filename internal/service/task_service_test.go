@@ -11,7 +11,7 @@ import (
 
 func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -47,7 +47,7 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 
 func TestStartTask_RejectsNonAssignee(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -72,7 +72,7 @@ func TestStartTask_RejectsNonAssignee(t *testing.T) {
 
 func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -97,7 +97,7 @@ func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 
 func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -123,7 +123,7 @@ func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -172,7 +172,7 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -198,7 +198,7 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -224,7 +224,7 @@ func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -250,7 +250,7 @@ func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
 func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -299,7 +299,7 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 func TestRejectTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -325,7 +325,7 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -351,7 +351,7 @@ func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -377,7 +377,7 @@ func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
 func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -416,7 +416,7 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 
 func TestApproveTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -441,7 +441,7 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 
 func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -467,7 +467,7 @@ func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -492,7 +492,7 @@ func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
 
 func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
@@ -525,7 +525,7 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 
 func TestCloseTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -550,7 +550,7 @@ func TestCloseTask_RejectsNonOwner(t *testing.T) {
 
 func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -576,7 +576,7 @@ func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -638,7 +638,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 
 func TestListTaskRecords_ReturnsNotFoundForUnknownTask(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 
 	_, err := svc.ListTaskRecords("missing")
 	if err != repository.ErrTaskNotFound {
@@ -649,7 +649,7 @@ func TestListTaskRecords_ReturnsNotFoundForUnknownTask(t *testing.T) {
 func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	states := []string{TaskStatusOpen, TaskStatusAssigned, TaskStatusInProgress, TaskStatusSubmitted}
@@ -686,7 +686,7 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 
 func TestCancelTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -709,7 +709,7 @@ func TestCancelTask_RejectsNonOwner(t *testing.T) {
 
 func TestCancelTask_RejectsCompletedTask(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -733,7 +733,7 @@ func TestCancelTask_RejectsCompletedTask(t *testing.T) {
 func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	// 1. Reactivate task with no assignee (should go to open)
@@ -789,7 +789,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 
 func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -813,7 +813,7 @@ func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
-	svc := NewTaskService(repo, recordRepo)
+	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -862,7 +862,7 @@ func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 
 func TestDeleteTask_RejectsNonOwner(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
-	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository())
+	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
 	_, err := repo.Create(model.Task{
@@ -880,5 +880,136 @@ func TestDeleteTask_RejectsNonOwner(t *testing.T) {
 	err = svc.DeleteTask(model.User{ID: "u_other_001"}, "task_del_err")
 	if err != ErrForbiddenDelete {
 		t.Fatalf("expected ErrForbiddenDelete, got %v", err)
+	}
+}
+
+func TestTaskService_AuditLogsAreCreatedThroughoutLifecycle(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	auditRepo := repository.NewMemoryAuditLogRepository()
+	svc := NewTaskService(repo, recordRepo, auditRepo)
+
+	creator := model.User{ID: "u_creator_1"}
+	worker := model.User{ID: "u_worker_1"}
+
+	// 1. Create Task -> should log task_created
+	task, err := svc.CreateTask(creator, "Audit Test Task", "E2E audit logging verification")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	logs, err := svc.ListTaskAuditLogs(task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskAuditLogs: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Action != model.AuditActionCreated {
+		t.Fatalf("expected 1 log with action %q, got %d logs: %+v", model.AuditActionCreated, len(logs), logs)
+	}
+
+	// 2. Assign Task -> should log task_assigned
+	task, err = svc.AssignTask(creator, task.ID, worker.ID)
+	if err != nil {
+		t.Fatalf("AssignTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if len(logs) != 2 || logs[1].Action != model.AuditActionAssigned {
+		t.Fatalf("expected log[1] to be %q, got %+v", model.AuditActionAssigned, logs)
+	}
+
+	// 3. Start Task -> should log task_started
+	task, err = svc.StartTask(worker, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if len(logs) != 3 || logs[2].Action != model.AuditActionStarted {
+		t.Fatalf("expected log[2] to be %q, got %+v", model.AuditActionStarted, logs)
+	}
+
+	// 4. Submit Task -> should log task_submitted
+	task, _, err = svc.SubmitTask(worker, task.ID, "completed first pass")
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if len(logs) != 4 || logs[3].Action != model.AuditActionSubmitted {
+		t.Fatalf("expected log[3] to be %q", model.AuditActionSubmitted)
+	}
+
+	// 5. Reject Task -> should log task_rejected
+	task, _, err = svc.RejectTask(creator, task.ID, "need more docs")
+	if err != nil {
+		t.Fatalf("RejectTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if len(logs) != 5 || logs[4].Action != model.AuditActionRejected {
+		t.Fatalf("expected log[4] to be %q", model.AuditActionRejected)
+	}
+
+	// 6. Start Again
+	task, err = svc.StartTask(worker, task.ID)
+	if err != nil {
+		t.Fatalf("StartTask again: %v", err)
+	}
+
+	// 7. Submit Again
+	task, _, err = svc.SubmitTask(worker, task.ID, "completed second pass")
+	if err != nil {
+		t.Fatalf("SubmitTask again: %v", err)
+	}
+
+	// 8. Approve Task -> should log task_approved
+	task, _, err = svc.ApproveTask(creator, task.ID, "approved")
+	if err != nil {
+		t.Fatalf("ApproveTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if logs[7].Action != model.AuditActionApproved {
+		t.Fatalf("expected log[7] to be %q", model.AuditActionApproved)
+	}
+
+	// 9. Close Task -> should log task_closed
+	task, err = svc.CloseTask(creator, task.ID)
+	if err != nil {
+		t.Fatalf("CloseTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if logs[8].Action != model.AuditActionClosed {
+		t.Fatalf("expected log[8] to be %q", model.AuditActionClosed)
+	}
+
+	// 10. Reactivate Task -> should log task_reopened
+	task, _, err = svc.ReactivateTask(creator, task.ID, "needs minor bug fix")
+	if err != nil {
+		t.Fatalf("ReactivateTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if logs[9].Action != model.AuditActionReopened {
+		t.Fatalf("expected log[9] to be %q", model.AuditActionReopened)
+	}
+
+	// 11. Cancel Task -> should log task_cancelled
+	task, _, err = svc.CancelTask(creator, task.ID, "cancel it")
+	if err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	if logs[10].Action != model.AuditActionCancelled {
+		t.Fatalf("expected log[10] to be %q", model.AuditActionCancelled)
+	}
+
+	// 12. Delete Task -> should cascade delete everything
+	err = svc.DeleteTask(creator, task.ID)
+	if err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+
+	// Verify audit logs are completely deleted
+	records, err := auditRepo.ListByTaskID(task.ID)
+	if err != nil {
+		t.Fatalf("ListByTaskID: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 audit logs, got %d", len(records))
 	}
 }

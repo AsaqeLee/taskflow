@@ -284,6 +284,16 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "task and records successfully deleted"})
 }
 
+func (h *TaskHandler) ListAuditLogs(c *gin.Context) {
+	logs, err := h.service.ListTaskAuditLogs(c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"audit_logs": logs})
+}
+
 func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTaskID),
