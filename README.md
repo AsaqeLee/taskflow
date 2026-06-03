@@ -1,10 +1,37 @@
 # TaskFlow
 
-TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项目。
+> A Go backend practice project for task lifecycle and collaboration workflows, built with Gin and dual persistence drivers (`memory` + `mongo`).
 
-当前阶段不是一次性做完整用户系统，而是先围绕 V0 范围搭出一个**可运行、可测试、可继续扩展**的任务流转骨架，优先打通任务主链：
+TaskFlow 是一个面向任务协作 / 工单管理场景的 **Go 后端练习项目**。  
+当前目标不是一次性做完整平台，而是先把一个 **可运行、可测试、可继续扩展** 的任务流转后端骨架打磨扎实。
+
+## Quick Overview
+
+### What this repo demonstrates
+
+- Action-oriented task lifecycle APIs: `assign / start / submit / approve / reject / close / cancel / reactivate / delete`
+- Dual-driver persistence design: `memory` for fast local iteration, `mongo` for persistence-path validation
+- Minimal dynamic identity system: seeded users + `POST /users` + `UserAuth`
+- Collaboration traces: `TaskRecord` + `AuditLog`
+- Layered Go backend structure: `handler / service / repository / bootstrap`
+
+### Tech Stack
+
+`Go` · `Gin` · `MongoDB` · `REST API` · `Repository Pattern`
+
+### Current lifecycle
 
 `create -> assign -> start -> submit -> approve/reject -> close`
+
+Additional lifecycle actions:
+
+`cancel / reactivate / delete`
+
+### Current repo focus
+
+- Prioritize clear state semantics over feature breadth
+- Keep local recovery cost low after context switching
+- Make README, code, and tests stay consistent with each other
 
 ---
 
