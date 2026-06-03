@@ -65,7 +65,10 @@ func (r *MongoAuditLogRepository) ListByTaskID(taskID string) ([]model.AuditLog,
 		result = append(result, auditLogDocumentToModel(doc))
 	}
 
-	sort.Slice(result, func(i, j int) bool {
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID < result[j].ID
+		}
 		return result[i].CreatedAt.Before(result[j].CreatedAt)
 	})
 

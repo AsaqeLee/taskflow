@@ -14,12 +14,13 @@ TaskFlow 是一个面向任务协作 / 工单管理场景的 Go 后端练习项�
 
 ### 当前项目一句话状态
 
-TaskFlow 目前已经完成 **Task CRUD + 主动作链闭环**，并正在补齐 **dual-driver 本地开发模式**：
+TaskFlow 目前已经完成 **Task CRUD + 主动作链闭环 + 生命周期补充动作 + AuditLog MVP + 最小动态身份系统**，并继续收口 **dual-driver 本地开发模式**：
 
 - 默认仓储驱动：`memory`
 - 可切换仓储驱动：`mongo`
 - 当前动作主链：`create -> assign -> start -> submit -> approve/reject -> close`
-- 当前测试机制：固定测试用户 `u_test_001`
+- 当前补充动作：`cancel / reactivate / delete`
+- 当前身份机制：seed 默认用户 + `POST /users` + `UserAuth`（`Bearer token` / `X-User-ID`）
 
 ### 5 分钟恢复阅读路径
 
@@ -49,11 +50,11 @@ TaskFlow 目前已经完成 **Task CRUD + 主动作链闭环**，并正在补齐
 
 当前先不扩到这些方向：
 
-- 完整注册 / 登录系统
+- 完整登录 / 密码体系
 - JWT / Session 认证
 - 多协作者关系
 - 子任务
-- 评论 / 回执 / 审计的完整体系
+- 评论 / 回执 / 审计的完整体系（当前仅有最小 TaskRecord + AuditLog MVP）
 - 通用工作流引擎
 - 前端界面
 
@@ -89,16 +90,18 @@ TaskFlow 当前更像一个 **任务生命周期后端实验场**，用于沉淀
 - `internal/handler` HTTP 请求处理
 - `internal/service` 业务规则与状态流转
 - `internal/repository` 仓储抽象
-- MongoDB TaskRepository / TaskRecordRepository 实现已接入
+- MongoDB TaskRepository / TaskRecordRepository / AuditLogRepository / UserRepository 实现已接入
 - `internal/database` Mongo 客户端初始化
-- 固定测试用户注入中间件
+- 基于 `UserRepository` 的最小动态身份系统（seed 默认用户 + `/users` 注册 + `UserAuth` 中间件）
 - Task 基础 CRUD（当前是 create / list / get / update basic）
-- Task 动作型接口：`assign / start / submit / reject / approve / close`
-- 最小 `TaskRecord` 已接入 `submit / reject / approve` 三个协作动作，并支持按任务查询
+- Task 动作型接口：`assign / start / submit / reject / approve / close / cancel / reactivate / delete`
+- 最小 `TaskRecord` 已接入 `submit / reject / approve / cancel / reactivate` 五个协作动作，并支持按任务查询
+- `AuditLog` MVP 已接入关键动作自动留痕，并支持按任务查询
 - 单元测试已覆盖多条主链和错误分支
 
 ### 当前可运行接口
 
+- `POST /users`
 - `GET /health`
 - `GET /me`
 - `POST /tasks`
@@ -112,13 +115,16 @@ TaskFlow 当前更像一个 **任务生命周期后端实验场**，用于沉淀
 - `POST /tasks/:id/reject`
 - `POST /tasks/:id/approve`
 - `POST /tasks/:id/close`
+- `POST /tasks/:id/cancel`
+- `POST /tasks/:id/reactivate`
+- `DELETE /tasks/:id`
+- `GET /tasks/:id/audit_logs`
 
 ### 当前仍未做
 
-- 完整注册 / 登录系统
+- 完整登录 / 密码体系
 - JWT / Session 认证
-- 完整评论 / 审计体系（当前仅支持最小 TaskRecord 写入与按任务查询）
-- cancel / reactivate / delete 等动作闭环
+- 完整评论 / 审计体系（当前仅支持最小 TaskRecord 与 AuditLog MVP）
 - 子任务
 - 多协作者关系
 - 通用工作流引擎
@@ -135,12 +141,12 @@ flowchart LR
     Config[internal/config]
     App[internal/bootstrap.App]
     Router[internal/router]
-    Middleware[internal/middleware.FixedTestUser]
-    Handlers[internal/handler<br/>Health / Me / Task]
+    Middleware[internal/middleware.UserAuth]
+    Handlers[internal/handler<br/>Health / Identity / Task]
     Service[internal/service.TaskService]
-    Repo[internal/repository<br/>TaskRepository / TaskRecordRepository]
-    MongoRepo[internal/repository<br/>MongoTaskRepository / MongoTaskRecordRepository]
-    Models[internal/model<br/>User / Task / TaskRecord]
+    Repo[internal/repository<br/>TaskRepository / TaskRecordRepository / AuditLogRepository / UserRepository]
+    MongoRepo[internal/repository<br/>MongoTaskRepository / MongoTaskRecordRepository / MongoAuditLogRepository / MongoUserRepository]
+    Models[internal/model<br/>User / Task / TaskRecord / AuditLog]
     DB[internal/database<br/>Mongo Client]
 
     Main --> Config
@@ -182,10 +188,10 @@ flowchart LR
 
 - `internal/router`
   - 注册 Gin 路由
-  - 组织公开接口与需注入用户的接口
+  - 组织公开注册接口与需鉴权的业务接口
 
 - `internal/middleware`
-  - 注入固定测试用户到请求上下文
+  - 通过 `Authorization` 或 `X-User-ID` 解析当前用户并注入请求上下文
 
 - `internal/handler`
   - 处理 HTTP 请求
@@ -197,7 +203,7 @@ flowchart LR
   - 负责状态流转校验与权限约束
 
 - `internal/repository`
-  - 定义 `TaskRepository` / `TaskRecordRepository` 抽象
+  - 定义 `TaskRepository` / `TaskRecordRepository` / `AuditLogRepository` / `UserRepository` 抽象
   - 当前已提供 Mongo 与 memory 两套实现，用于环境切换与早期演化
 
 - `internal/model`
@@ -254,6 +260,7 @@ type Task struct {
 - `submitted`
 - `approved`
 - `completed`
+- `cancelled`
 
 ### 状态流转图
 
@@ -266,6 +273,14 @@ stateDiagram-v2
     submitted --> approved: approve
     approved --> completed: close
     submitted --> assigned: reject
+    open --> cancelled: cancel
+    assigned --> cancelled: cancel
+    in_progress --> cancelled: cancel
+    submitted --> cancelled: cancel
+    cancelled --> open: reactivate(no assignee)
+    cancelled --> assigned: reactivate(has assignee)
+    completed --> open: reactivate(no assignee)
+    completed --> assigned: reactivate(has assignee)
 ```
 
 ### 主链
@@ -299,38 +314,55 @@ submitted -> assigned
 - `approve` 需要 `content`，并写入一条 `TaskRecord`
 - 仅创建者可执行 `close`
 - `close` 仅允许 `approved -> completed`
+- 仅创建者可执行 `cancel`
+- `cancel` 当前允许 `open / assigned / in_progress / submitted -> cancelled`
+- `cancel` 需要 `content`，并写入 `TaskRecord` + `AuditLog`
+- 仅创建者可执行 `reactivate`
+- `reactivate` 当前允许 `cancelled / completed -> open or assigned`
+- `reactivate` 需要 `content`，并写入 `TaskRecord` + `AuditLog`
+- `delete` 当前由创建者触发，并会删除 task、task records 与 audit logs
+- 关键动作当前会自动写入 `AuditLog`
 
 ### 当前输入校验
 
 - `title` 不能为空
 - `title` 长度至少 3 个字符
 - `assignee_id` 不能为空
-- `submit / reject / approve` 的 `content` 不能为空
+- `submit / reject / approve / cancel / reactivate` 的 `content` 不能为空
 - `task id` 不能为空
 
 ---
 
 ## 6. 认证与当前测试用户机制
 
-当前项目**还没有真正的登录系统**。
+当前项目**还没有完整登录系统**，但已经从静态 mock 推进到了**最小动态身份系统**。
 
-为了先把任务主链跑通，所有受保护接口都通过中间件注入一个固定测试用户：
+当前受保护接口通过 `UserAuth(userRepo)` 中间件解析当前用户，支持两种方式：
+
+- `Authorization` 请求头（Bearer token）
+- `X-User-ID` 请求头（直接传 user id）
+
+bootstrap 当前会 seed 一组默认用户，便于本地恢复测试：
 
 ```json
-{
-  "id": "u_test_001",
-  "name": "Test User",
-  "role": "owner"
-}
+[
+  {"id":"u_test_001","name":"Test Creator","role":"owner","token":"token_creator"},
+  {"id":"u_test_002","name":"Test Assignee","role":"human","token":"token_assignee"},
+  {"id":"u_agent_001","name":"Hermes Agent","role":"agent","token":"token_agent"}
+]
 ```
+
+同时还提供公开注册入口：
+
+- `POST /users`
 
 因此：
 
-- `GET /me` 会返回固定测试用户
-- 任务创建时，`creator_id` 会写成 `u_test_001`
-- 若要手动测试 `start / submit` 等“执行者动作”，需要把 `assignee_id` 设为 `u_test_001`
+- `GET /me` 会返回当前鉴权解析到的用户
+- 任务创建时，`creator_id` 会写成当前请求用户
+- 若要手动测试 `start / submit` 等执行者动作，建议把 `assignee_id` 设为 `u_test_002`，并改用 `token_assignee` 调用
 
-这是一种**为了先完成主链而做的 V0 简化**，后续再逐步替换成真实身份系统。
+这仍然是一种**为了先把权限边界跑通而做的 V0 简化**，后续再继续补完整登录 / JWT / Session。
 
 ---
 
@@ -445,7 +477,7 @@ http://localhost:8080
 
 ```bash
 curl http://localhost:8080/health
-curl http://localhost:8080/me
+curl -H 'X-User-ID: u_test_001' http://localhost:8080/me
 ```
 
 ---
@@ -479,18 +511,20 @@ TASK_REPOSITORY_DRIVER=memory go run ./cmd/server
 
 ```bash
 curl http://localhost:8080/health
-curl http://localhost:8080/me
+curl -H 'X-User-ID: u_test_001' http://localhost:8080/me
+curl -H 'X-User-ID: u_test_002' http://localhost:8080/me
 ```
 
 3. 跑一遍最小主链：
 
-- `POST /tasks`
-- `POST /tasks/:id/assign`（`assignee_id=u_test_001`）
-- `POST /tasks/:id/start`
-- `POST /tasks/:id/submit`
-- `GET /tasks/:id/records`
-- `POST /tasks/:id/approve`
-- `POST /tasks/:id/close`
+- 用 `u_test_001`：`POST /tasks`
+- 用 `u_test_001`：`POST /tasks/:id/assign`（`assignee_id=u_test_002`）
+- 用 `u_test_002`：`POST /tasks/:id/start`
+- 用 `u_test_002`：`POST /tasks/:id/submit`
+- 用 `u_test_001`：`GET /tasks/:id/records`
+- 用 `u_test_001`：`POST /tasks/:id/approve`
+- 用 `u_test_001`：`POST /tasks/:id/close`
+- 如需验证今天新增能力，可再补：`POST /tasks/:id/cancel`、`POST /tasks/:id/reactivate`、`GET /tasks/:id/audit_logs`
 
 ### C. mongo 模式最小恢复验证
 
@@ -506,7 +540,7 @@ docker compose up -d
 TASK_REPOSITORY_DRIVER=mongo MONGODB_URI=mongodb://localhost:27017 MONGODB_DATABASE=taskflow go run ./cmd/server
 ```
 
-3. 重新跑同一条最小主链（包含 `GET /tasks/:id/records` 验证记录读取）。
+3. 重新跑同一条最小主链（包含 `GET /tasks/:id/records` 与 `GET /tasks/:id/audit_logs` 验证记录 / 留痕读取）。
 
 如果 memory 能跑、mongo 也能跑，说明当前 TaskFlow 已具备“可恢复项目”的基本条件。
 
@@ -524,11 +558,13 @@ create -> assign -> start -> submit -> approve -> close
 create -> assign -> start -> submit -> reject -> start -> submit -> approve -> close
 ```
 
-以后每次恢复项目，只要这两条链还能跑通，你就基本知道 V0 主体没有坏。
+以后每次恢复项目，只要主链、取消/恢复链和审计查询链还能跑通，你就基本知道 V0 主体没有坏。
 
 ---
 
 ## 9. 接口快速示例
+
+> 说明：除 `GET /health` 与 `POST /users` 外，其余接口都需要携带鉴权信息。推荐两种方式：`Authorization`（Bearer token）或 `X-User-ID`（直接传 user id）。下面的示例主要展示业务载荷；真实手测时请自行补上鉴权 header。
 
 ### 健康检查
 
@@ -547,7 +583,7 @@ curl http://localhost:8080/health
 ### 查看当前用户
 
 ```bash
-curl http://localhost:8080/me
+curl -H 'X-User-ID: u_test_001' http://localhost:8080/me
 ```
 
 返回示例：
@@ -556,7 +592,7 @@ curl http://localhost:8080/me
 {
   "user": {
     "id": "u_test_001",
-    "name": "Test User",
+    "name": "Test Creator",
     "role": "owner"
   }
 }
@@ -598,13 +634,13 @@ curl -X PATCH http://localhost:8080/tasks/<task_id> \
 
 ### 指派任务
 
-> 如果后续要继续手动测试 `start / submit`，这里建议直接把 `assignee_id` 设为 `u_test_001`。
+> 如果后续要继续手动测试 `start / submit`，这里建议把 `assignee_id` 设为 `u_test_002`，然后改用 `u_test_002` 继续调用执行者动作。
 
 ```bash
 curl -X POST http://localhost:8080/tasks/<task_id>/assign \
   -H 'Content-Type: application/json' \
   -d '{
-    "assignee_id": "u_test_001"
+    "assignee_id": "u_test_002"
   }'
 ```
 
@@ -675,7 +711,7 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 
 ## 9. 接口契约速查
 
-> 说明：除 `GET /health` 外，其余接口当前都依赖中间件注入固定测试用户。
+> 说明：除 `GET /health` 与 `POST /users` 外，其余接口当前都依赖 `Authorization` 或 `X-User-ID` 解析当前用户。
 
 ### `GET /health`
 
@@ -692,10 +728,10 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 | Item | Value |
 | --- | --- |
 | Purpose | 获取当前上下文用户 |
-| Auth | Yes（当前为固定测试用户注入） |
+| Auth | Yes（当前通过 Bearer token 或 `X-User-ID` 解析用户） |
 | Success | `200 OK` |
-| Response | `{ "user": { "id": "u_test_001", "name": "Test User", "role": "owner" } }` |
-| Common errors | `500`：上下文中没有当前用户 |
+| Response | `{ "user": { "id": "u_test_001", "name": "Test Creator", "role": "owner", "token": "..." } }` |
+| Common errors | `401`：缺少或无效的 token / user id；`500`：上下文中没有当前用户 |
 
 ### `POST /tasks`
 
@@ -865,28 +901,28 @@ curl -X POST http://localhost:8080/tasks/<task_id>/close
 
 如果想手动走一遍最小闭环，推荐按这个顺序：
 
-1. `POST /tasks` 创建任务
-2. `POST /tasks/:id/assign`，把 `assignee_id` 设为 `u_test_001`
-3. `POST /tasks/:id/start`
-4. `POST /tasks/:id/submit`
-5. `GET /tasks/:id/records`（可选，用于确认提交记录已写入）
-6. `POST /tasks/:id/approve`
-7. `GET /tasks/:id/records`（可选，用于确认审核记录已写入）
-8. `POST /tasks/:id/close`
+1. 用 `u_test_001` 调 `POST /tasks` 创建任务
+2. 用 `u_test_001` 调 `POST /tasks/:id/assign`，把 `assignee_id` 设为 `u_test_002`
+3. 用 `u_test_002` 调 `POST /tasks/:id/start`
+4. 用 `u_test_002` 调 `POST /tasks/:id/submit`
+5. 用 `u_test_001` 调 `GET /tasks/:id/records`（可选，用于确认提交记录已写入）
+6. 用 `u_test_001` 调 `POST /tasks/:id/approve`
+7. 用 `u_test_001` 调 `GET /tasks/:id/records`（可选，用于确认审核记录已写入）
+8. 用 `u_test_001` 调 `POST /tasks/:id/close`
 
 如果要测试驳回支线：
 
-1. 创建任务
-2. 指派给 `u_test_001`
-3. `start`
-4. `submit`
-5. `GET /tasks/:id/records`（可选）
-6. `reject`
-7. 再次 `start`
-8. 再次 `submit`
-9. `approve`
-10. `GET /tasks/:id/records`（可选）
-11. `close`
+1. 用 `u_test_001` 创建任务
+2. 用 `u_test_001` 指派给 `u_test_002`
+3. 用 `u_test_002` `start`
+4. 用 `u_test_002` `submit`
+5. 用 `u_test_001` `GET /tasks/:id/records`（可选）
+6. 用 `u_test_001` `reject`
+7. 用 `u_test_002` 再次 `start`
+8. 用 `u_test_002` 再次 `submit`
+9. 用 `u_test_001` `approve`
+10. 用 `u_test_001` `GET /tasks/:id/records`（可选）
+11. 用 `u_test_001` `close`
 
 ---
 
@@ -993,11 +1029,12 @@ go test ./...
 
 ### 后续再考虑的方向
 
-#### A. 固定最小 `TaskRecord` slice，而不是从零重新设计记录能力
+#### A. 固定最小 `TaskRecord` / `AuditLog` slice，而不是从零重新设计记录能力
 
-- 当前 `submit / reject / approve` 已会写入 `TaskRecord`
-- 当前已提供 `GET /tasks/:id/records`
-- 下一步更适合继续判断：哪些动作仍只改状态，哪些动作也应留下正文或 `AuditLog`
+- 当前 `submit / reject / approve / cancel / reactivate` 已会写入 `TaskRecord`
+- 当前关键状态动作已会写入 `AuditLog`
+- 当前已提供 `GET /tasks/:id/records` 与 `GET /tasks/:id/audit_logs`
+- 下一步更适合继续判断：哪些动作仍只改状态，哪些动作也应留下正文或更丰富的审计元数据
 
 #### B. 继续收口 dual-driver 恢复流程
 
@@ -1005,19 +1042,19 @@ go test ./...
 - 在 `mongo` 模式下补一次真实端到端验证
 - 把运行前提、环境变量与排错路径写成稳定文档
 
-#### C. 补生命周期剩余动作
+#### C. 收紧已实现生命周期动作的验证与文档
 
-- `cancel`
-- `reactivate`
-- `delete`
+- 校准 `cancel / reactivate / delete` 的对外说明
+- 明确 `delete` 当前是硬删除清理路径，不是 `deleted` 状态枚举落地
+- 继续补强 Mongo 端到端测试与恢复脚本
 
-这样任务生命周期才会从“主闭环已通”继续走向“生命周期更完整”。
+这样任务生命周期才会从“能力已实现”继续走向“语义稳定、恢复成本低、对外说明一致”。
 
-#### D. 补更真实的身份系统
+#### D. 在最小动态身份系统之上继续补完整认证
 
-- 替换固定测试用户
-- 引入真实用户来源
-- 逐步把 `creator / assignee / owner` 的边界拉清楚
+- 保持当前 `POST /users` + `UserAuth` 基线可用
+- 再决定何时引入完整登录 / JWT / Session
+- 逐步把 `creator / assignee / owner / agent` 的边界拉清楚
 
 #### E. 完善 Mongo 持久化配套
 
