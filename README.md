@@ -1,58 +1,106 @@
+<div align="center">
+
 # TaskFlow
 
-> **DDD-Compliant Go Workflow Backend** featuring a hardened **State Machine** and **Dual-Persistence** architecture (`memory` + `mongo`).
+**DDD-Compliant Go Workflow Backend with Hardened State Machine**
 
-TaskFlow is a production-grade blueprint for task collaboration and lifecycle management. It prioritizes explicit state transitions, repository-based persistence abstractions, and low-friction developer recovery.
+[![Architecture: State--Machine](https://img.shields.io/badge/architecture-state--machine-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
+[![Standard: DDD--Compliant](https://img.shields.io/badge/standard-ddd--compliant-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
+[![Persistence: Polyglot](https://img.shields.io/badge/persistence-polyglot-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
 
-## 🏗 Key Architectural Decisions
+English | [简体中文](./README_ZH.md)
 
-### 1. Hardened State Machine
-Unlike simple CRUD apps, TaskFlow treats task lifecycles as a formal state machine. Every action (`assign`, `start`, `submit`, `approve`) is validated against current state and actor permissions, ensuring zero illegal transitions.
+</div>
 
-### 2. DDD & Repository Pattern
-Built with Domain-Driven Design principles. The core business logic is isolated from infrastructure, allowing the system to scale from simple task tracking to complex, multi-actor workflows without code rot.
+---
 
-### 3. Dual-Persistence Drivers
+## Introduction
+
+**TaskFlow** is a production-grade blueprint for task collaboration and lifecycle management. It prioritizes explicit state transitions, repository-based persistence abstractions, and low-friction developer recovery. By decoupling business logic from infrastructure, it scales from simple task tracking to complex, multi-actor workflows.
+
+>[!IMPORTANT]
+>This system treats task lifecycles as a formal state machine. Every action (assign, start, submit, approve) is validated against current state and actor permissions to ensure zero illegal transitions.
+
+---
+
+## Workflow Architecture
+
+The core engine enforces a strict lifecycle: `create -> assign -> start -> submit -> approve/reject -> close`.
+
+```mermaid
+graph LR
+    Create([Create]) --> Assign[Assign]
+    Assign --> Start[Start]
+    Start --> Submit[Submit]
+    Submit --> Review{Review}
+    Review -- Reject --> Start
+    Review -- Approve --> Close([Close])
+    
+    style Review fill:none,stroke:#000,stroke-width:2px
+```
+
+---
+
+## Technical Specifications
+
+<details>
+<summary><b>Domain-Driven Design (DDD) Structure</b></summary>
+
+```text
+taskflow/
+├── cmd/                # Entry points (HTTP Server)
+├── internal/
+│   ├── bootstrap/      # Dependency Injection & App Assembly
+│   ├── service/        # Hardened State Machine & Business Rules
+│   ├── repository/     # Persistence Abstractions (Mongo/Memory)
+│   └── domain/         # Core Entities & Value Objects
+├── docs/               # Boundary definitions and targets
+└── scripts/            # Deployment and utility scripts
+```
+</details>
+
+<details>
+<summary><b>Dual-Persistence Driver Protocol</b></summary>
+
+TaskFlow supports pluggable persistence through the Repository Pattern:
 - **Memory Driver:** Optimized for lightning-fast local iteration and CI/CD testing.
 - **Mongo Driver:** For production-grade persistence-path validation and horizontal scaling.
-- *Switchable via environment variables without changing a single line of business logic.*
+- **Switching:** Controlled via `TASK_REPOSITORY_DRIVER` environment variable without business logic changes.
+</details>
 
-### 4. Audit & Collaboration Traceability
-Every state change triggers an `AuditLog` and `TaskRecord`, providing a verifiable history of who did what, when, and why—essential for professional collaboration and AI-augmented workflows.
+<details>
+<summary><b>Enterprise Installation & Usage</b></summary>
 
----
+### Prerequisites
+- Go 1.21 or higher
+- MongoDB (optional, for production driver)
 
-## 🚀 Quick Overview
+### Quick Start
+```bash
+# Clone the repository
+git clone https://github.com/AsaqeLee/taskflow.git
+cd taskflow
 
-### Tech Stack
-`Go` · `Gin` · `MongoDB` · `REST API` · `Repository Pattern` · `State Machine`
+# Verify integrity
+go test ./...
 
-### Current Lifecycle
-`create -> assign -> start -> submit -> approve/reject -> close`
-
----
-
-## 🛠 Local Recovery (5-Minute Path)
-If you've been away for a while, use this sequence to verify the project is "alive":
-1. `go test ./...`
-2. `TASK_REPOSITORY_DRIVER=memory go run ./cmd/server`
-3. Check `http://localhost:8080/health`
-
----
-
-## 📂 Directory Structure
-- `internal/service`: Hardened state machine and business rules.
-- `internal/repository`: Persistence abstractions and driver implementations.
-- `internal/bootstrap`: Application assembly and dependency injection.
+# Run with memory persistence
+TASK_REPOSITORY_DRIVER=memory go run ./cmd/server
+```
+</details>
 
 ---
 
-## ⚖️ Boundaries (V0)
-- **Included:** Hardened lifecycle, dual persistence, audit trails, minimal dynamic identity.
-- **Deferred:** Full JWT/OAuth, sub-tasks, general-purpose workflow engine.
+## Strategic Boundaries
+
+- **Audit Traceability:** Every state change triggers an `AuditLog` for professional accountability.
+- **Minimalist Identity:** Focused on lifecycle integrity; full OAuth is deferred to identity providers.
+- **Clean Code:** Adheres to high-integrity Go standards with minimal third-party dependency bloat.
 
 ---
 
-## 相关文档
-- `docs/项目目标.md`
-- `docs/V0 模块与职责边界.md`
+<div align="center">
+
+&copy; 2026 AsaqeLee. Built for deterministic workflow orchestration.
+
+</div>
