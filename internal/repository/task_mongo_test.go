@@ -20,7 +20,7 @@ func TestMongoTaskRepository_CreateAndGetByID(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 	now := time.Now().UTC()
 
-	created, err := repo.Create(model.Task{
+	created, err := repo.Create(context.Background(), model.Task{
 		Title:       "Mongo create",
 		Description: "persist me",
 		Status:      "open",
@@ -36,7 +36,7 @@ func TestMongoTaskRepository_CreateAndGetByID(t *testing.T) {
 		t.Fatalf("expected generated id")
 	}
 
-	got, err := repo.GetByID(created.ID)
+	got, err := repo.GetByID(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("GetByID returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestMongoTaskRepository_ListOrdersByCreatedAtAscending(t *testing.T) {
 	firstTime := time.Now().UTC().Add(-time.Hour)
 	secondTime := firstTime.Add(time.Minute)
 
-	first, err := repo.Create(model.Task{
+	first, err := repo.Create(context.Background(), model.Task{
 		Title:       "first",
 		Description: "",
 		Status:      "open",
@@ -65,7 +65,7 @@ func TestMongoTaskRepository_ListOrdersByCreatedAtAscending(t *testing.T) {
 		t.Fatalf("Create first task: %v", err)
 	}
 
-	second, err := repo.Create(model.Task{
+	second, err := repo.Create(context.Background(), model.Task{
 		Title:       "second",
 		Description: "",
 		Status:      "open",
@@ -77,7 +77,7 @@ func TestMongoTaskRepository_ListOrdersByCreatedAtAscending(t *testing.T) {
 		t.Fatalf("Create second task: %v", err)
 	}
 
-	items, err := repo.List()
+	items, err := repo.List(context.Background())
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestMongoTaskRepository_UpdatePersistsChanges(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 	now := time.Now().UTC()
 
-	created, err := repo.Create(model.Task{
+	created, err := repo.Create(context.Background(), model.Task{
 		Title:       "before update",
 		Description: "old",
 		Status:      "open",
@@ -113,7 +113,7 @@ func TestMongoTaskRepository_UpdatePersistsChanges(t *testing.T) {
 	created.AssigneeID = "u_worker_001"
 	created.UpdatedAt = now.Add(time.Minute)
 
-	updated, err := repo.Update(created)
+	updated, err := repo.Update(context.Background(), created)
 	if err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestMongoTaskRepository_UpdatePersistsChanges(t *testing.T) {
 		t.Fatalf("expected updated title, got %q", updated.Title)
 	}
 
-	got, err := repo.GetByID(created.ID)
+	got, err := repo.GetByID(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("GetByID returned error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestMongoTaskRepository_UpdatePersistsChanges(t *testing.T) {
 func TestMongoTaskRepository_GetByIDReturnsNotFound(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 
-	_, err := repo.GetByID("missing")
+	_, err := repo.GetByID(context.Background(), "missing")
 	if err != ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}
@@ -145,7 +145,7 @@ func TestMongoTaskRepository_GetByIDReturnsNotFound(t *testing.T) {
 func TestMongoTaskRepository_UpdateReturnsNotFound(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 
-	_, err := repo.Update(model.Task{ID: "missing"})
+	_, err := repo.Update(context.Background(), model.Task{ID: "missing"})
 	if err != ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}

@@ -29,8 +29,8 @@ func NewMongoTaskRecordRepository(collection *mongo.Collection) *MongoTaskRecord
 	return &MongoTaskRecordRepository{collection: collection}
 }
 
-func (r *MongoTaskRecordRepository) Create(record model.TaskRecord) (model.TaskRecord, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRecordRepository) Create(ctx context.Context, record model.TaskRecord) (model.TaskRecord, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	if record.ID == "" {
@@ -48,8 +48,8 @@ func (r *MongoTaskRecordRepository) Create(record model.TaskRecord) (model.TaskR
 	return record, nil
 }
 
-func (r *MongoTaskRecordRepository) ListByTaskID(taskID string) ([]model.TaskRecord, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRecordRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	cursor, err := r.collection.Find(ctx, bson.M{"task_id": taskID})
@@ -100,8 +100,8 @@ func taskRecordDocumentToModel(doc taskRecordDocument) model.TaskRecord {
 	}
 }
 
-func (r *MongoTaskRecordRepository) DeleteByTaskID(taskID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRecordRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	_, err := r.collection.DeleteMany(ctx, bson.M{"task_id": taskID})

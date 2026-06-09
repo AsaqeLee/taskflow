@@ -24,8 +24,8 @@ func NewMongoUserRepository(collection *mongo.Collection) *MongoUserRepository {
 	return &MongoUserRepository{collection: collection}
 }
 
-func (r *MongoUserRepository) Create(user model.User) (model.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoUserRepository) Create(ctx context.Context, user model.User) (model.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	if user.ID == "" {
@@ -40,8 +40,8 @@ func (r *MongoUserRepository) Create(user model.User) (model.User, error) {
 	return user, nil
 }
 
-func (r *MongoUserRepository) FindByID(id string) (model.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoUserRepository) FindByID(ctx context.Context, id string) (model.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	var doc userDocument
@@ -56,8 +56,8 @@ func (r *MongoUserRepository) FindByID(id string) (model.User, error) {
 	return userDocumentToModel(doc), nil
 }
 
-func (r *MongoUserRepository) FindByToken(token string) (model.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (model.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	var doc userDocument

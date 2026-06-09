@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -21,7 +22,7 @@ func NewMemoryUserRepository() *MemoryUserRepository {
 	}
 }
 
-func (r *MemoryUserRepository) Create(user model.User) (model.User, error) {
+func (r *MemoryUserRepository) Create(ctx context.Context, user model.User) (model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -38,7 +39,7 @@ func (r *MemoryUserRepository) Create(user model.User) (model.User, error) {
 	return user, nil
 }
 
-func (r *MemoryUserRepository) FindByID(id string) (model.User, error) {
+func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (model.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -50,7 +51,7 @@ func (r *MemoryUserRepository) FindByID(id string) (model.User, error) {
 	return user, nil
 }
 
-func (r *MemoryUserRepository) FindByToken(token string) (model.User, error) {
+func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (model.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

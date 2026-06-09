@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 )
@@ -44,13 +46,28 @@ type TaskService struct {
 	repo       repository.TaskRepository
 	recordRepo repository.TaskRecordRepository
 	auditRepo  repository.AuditLogRepository
+	dbClient   *database.Client
 }
 
-func NewTaskService(repo repository.TaskRepository, recordRepo repository.TaskRecordRepository, auditRepo repository.AuditLogRepository) *TaskService {
-	return &TaskService{repo: repo, recordRepo: recordRepo, auditRepo: auditRepo}
+func NewTaskService(
+	repo repository.TaskRepository,
+	recordRepo repository.TaskRecordRepository,
+	auditRepo repository.AuditLogRepository,
+	dbClient ...*database.Client,
+) *TaskService {
+	var db *database.Client
+	if len(dbClient) > 0 {
+		db = dbClient[0]
+	}
+	return &TaskService{
+		repo:       repo,
+		recordRepo: recordRepo,
+		auditRepo:  auditRepo,
+		dbClient:   db,
+	}
 }
 
-func (s *TaskService) CreateTask(currentUser model.User, title, description string) (model.Task, error) {
+func (s *TaskService) CreateTask(ctx context.Context, currentUser model.User, title, description string) (model.Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return model.Task{}, ErrEmptyTaskTitle
@@ -59,61 +76,73 @@ func (s *TaskService) CreateTask(currentUser model.User, title, description stri
 		return model.Task{}, ErrTooShortTaskTitle
 	}
 
-	now := time.Now().UTC()
-	task := model.Task{
-		Title:       title,
-		Description: strings.TrimSpace(description),
-		Status:      TaskStatusOpen,
-		CreatorID:   currentUser.ID,
-		AssigneeID:  "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+	var createdTask model.Task
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		now := time.Now().UTC()
+		task := model.Task{
+			Title:       title,
+			Description: strings.TrimSpace(description),
+			Status:      TaskStatusOpen,
+			CreatorID:   currentUser.ID,
+			AssigneeID:  "",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		createdTask, err = s.repo.Create(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    createdTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionCreated,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
 	}
 
-	createdTask, err := s.repo.Create(task)
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
 	if err != nil {
 		return model.Task{}, err
 	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    createdTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionCreated,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, err
-	}
-
 	return createdTask, nil
 }
 
-func (s *TaskService) GetTask(id string) (model.Task, error) {
+func (s *TaskService) GetTask(ctx context.Context, id string) (model.Task, error) {
 	if strings.TrimSpace(id) == "" {
 		return model.Task{}, ErrInvalidTaskID
 	}
 
-	return s.repo.GetByID(id)
+	return s.repo.GetByID(ctx, id)
 }
 
-func (s *TaskService) ListTasks() ([]model.Task, error) {
-	return s.repo.List()
+func (s *TaskService) ListTasks(ctx context.Context) ([]model.Task, error) {
+	return s.repo.List(ctx)
 }
 
-func (s *TaskService) ListTaskRecords(taskID string) ([]model.TaskRecord, error) {
+func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return nil, ErrInvalidTaskID
 	}
 
-	if _, err := s.repo.GetByID(taskID); err != nil {
+	if _, err := s.repo.GetByID(ctx, taskID); err != nil {
 		return nil, err
 	}
 
-	return s.recordRepo.ListByTaskID(taskID)
+	return s.recordRepo.ListByTaskID(ctx, taskID)
 }
 
-func (s *TaskService) UpdateTaskBasic(id, title, description string) (model.Task, error) {
+func (s *TaskService) UpdateTaskBasic(ctx context.Context, id, title, description string) (model.Task, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return model.Task{}, ErrInvalidTaskID
@@ -127,19 +156,36 @@ func (s *TaskService) UpdateTaskBasic(id, title, description string) (model.Task
 		return model.Task{}, ErrTooShortTaskTitle
 	}
 
-	task, err := s.repo.GetByID(id)
+	var updatedTask model.Task
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, id)
+		if err != nil {
+			return err
+		}
+
+		task.Title = title
+		task.Description = strings.TrimSpace(description)
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
 	if err != nil {
 		return model.Task{}, err
 	}
-
-	task.Title = title
-	task.Description = strings.TrimSpace(description)
-	task.UpdatedAt = time.Now().UTC()
-
-	return s.repo.Update(task)
+	return updatedTask, nil
 }
 
-func (s *TaskService) AssignTask(currentUser model.User, taskID, assigneeID string) (model.Task, error) {
+func (s *TaskService) AssignTask(ctx context.Context, currentUser model.User, taskID, assigneeID string) (model.Task, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return model.Task{}, ErrInvalidTaskID
@@ -150,441 +196,549 @@ func (s *TaskService) AssignTask(currentUser model.User, taskID, assigneeID stri
 		return model.Task{}, ErrEmptyAssigneeID
 	}
 
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, ErrForbiddenAssign
-	}
-
-	if task.Status != TaskStatusOpen {
-		return model.Task{}, ErrInvalidTaskStatusForAssign
-	}
-
-	task.AssigneeID = assigneeID
-	task.Status = TaskStatusAssigned
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionAssigned,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	return updatedTask, nil
-}
-
-func (s *TaskService) StartTask(currentUser model.User, taskID string) (model.Task, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, ErrInvalidTaskID
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	if task.Status != TaskStatusAssigned {
-		return model.Task{}, ErrInvalidTaskStatusForStart
-	}
-
-	if task.AssigneeID != currentUser.ID {
-		return model.Task{}, ErrForbiddenStart
-	}
-
-	task.Status = TaskStatusInProgress
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionStarted,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	return updatedTask, nil
-}
-
-func (s *TaskService) SubmitTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
-	}
-
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	if task.Status != TaskStatusInProgress {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForSubmit
-	}
-
-	if task.AssigneeID != currentUser.ID {
-		return model.Task{}, model.TaskRecord{}, ErrForbiddenSubmit
-	}
-
-	task.Status = TaskStatusSubmitted
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	record, err := s.recordRepo.Create(model.TaskRecord{
-		TaskID:    task.ID,
-		AuthorID:  currentUser.ID,
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionSubmitted,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	return updatedTask, record, nil
-}
-
-func (s *TaskService) RejectTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
-	}
-
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	if task.Status != TaskStatusSubmitted {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForReject
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, model.TaskRecord{}, ErrForbiddenReject
-	}
-
-	task.Status = TaskStatusAssigned
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	record, err := s.recordRepo.Create(model.TaskRecord{
-		TaskID:    task.ID,
-		AuthorID:  currentUser.ID,
-		Type:      model.TaskRecordTypeReject,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionRejected,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	return updatedTask, record, nil
-}
-
-func (s *TaskService) ApproveTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
-	}
-
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	if task.Status != TaskStatusSubmitted {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForApprove
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, model.TaskRecord{}, ErrForbiddenApprove
-	}
-
-	task.Status = TaskStatusApproved
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	record, err := s.recordRepo.Create(model.TaskRecord{
-		TaskID:    task.ID,
-		AuthorID:  currentUser.ID,
-		Type:      model.TaskRecordTypeApprove,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionApproved,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	return updatedTask, record, nil
-}
-
-func (s *TaskService) CloseTask(currentUser model.User, taskID string) (model.Task, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, ErrInvalidTaskID
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	if task.Status != TaskStatusApproved {
-		return model.Task{}, ErrInvalidTaskStatusForClose
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, ErrForbiddenClose
-	}
-
-	task.Status = TaskStatusCompleted
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionClosed,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, err
-	}
-
-	return updatedTask, nil
-}
-
-func (s *TaskService) CancelTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
-	}
-
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	if task.Status != TaskStatusOpen && task.Status != TaskStatusAssigned &&
-		task.Status != TaskStatusInProgress && task.Status != TaskStatusSubmitted {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForCancel
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, model.TaskRecord{}, ErrForbiddenCancel
-	}
-
-	task.Status = TaskStatusCancelled
-	task.UpdatedAt = time.Now().UTC()
-
-	updatedTask, err := s.repo.Update(task)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	record, err := s.recordRepo.Create(model.TaskRecord{
-		TaskID:    task.ID,
-		AuthorID:  currentUser.ID,
-		Type:      model.TaskRecordTypeCancel,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionCancelled,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	return updatedTask, record, nil
-}
-
-func (s *TaskService) ReactivateTask(currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
-	}
-
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
-	}
-
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	if task.Status != TaskStatusCancelled && task.Status != TaskStatusCompleted {
-		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskStatusForReactivate
-	}
-
-	if task.CreatorID != currentUser.ID {
-		return model.Task{}, model.TaskRecord{}, ErrForbiddenReactivate
-	}
-
-	if task.AssigneeID != "" {
+	var updatedTask model.Task
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenAssign
+		}
+
+		if task.Status != TaskStatusOpen {
+			return ErrInvalidTaskStatusForAssign
+		}
+
+		task.AssigneeID = assigneeID
 		task.Status = TaskStatusAssigned
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionAssigned,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
 	} else {
-		task.Status = TaskStatusOpen
+		err = runOps(ctx)
 	}
-	task.UpdatedAt = time.Now().UTC()
 
-	updatedTask, err := s.repo.Update(task)
+	if err != nil {
+		return model.Task{}, err
+	}
+	return updatedTask, nil
+}
+
+func (s *TaskService) StartTask(ctx context.Context, currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	var updatedTask model.Task
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusAssigned {
+			return ErrInvalidTaskStatusForStart
+		}
+
+		if task.AssigneeID != currentUser.ID {
+			return ErrForbiddenStart
+		}
+
+		task.Status = TaskStatusInProgress
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionStarted,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, err
+	}
+	return updatedTask, nil
+}
+
+func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	var updatedTask model.Task
+	var record model.TaskRecord
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusInProgress {
+			return ErrInvalidTaskStatusForSubmit
+		}
+
+		if task.AssigneeID != currentUser.ID {
+			return ErrForbiddenSubmit
+		}
+
+		task.Status = TaskStatusSubmitted
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		record, err = s.recordRepo.Create(txCtx, model.TaskRecord{
+			TaskID:    task.ID,
+			AuthorID:  currentUser.ID,
+			Type:      model.TaskRecordTypeSubmit,
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionSubmitted,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
 	if err != nil {
 		return model.Task{}, model.TaskRecord{}, err
 	}
-
-	record, err := s.recordRepo.Create(model.TaskRecord{
-		TaskID:    task.ID,
-		AuthorID:  currentUser.ID,
-		Type:      model.TaskRecordTypeReactivate,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
-	_, err = s.auditRepo.Create(model.AuditLog{
-		TaskID:    updatedTask.ID,
-		ActorID:   currentUser.ID,
-		Action:    model.AuditActionReopened,
-		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		return model.Task{}, model.TaskRecord{}, err
-	}
-
 	return updatedTask, record, nil
 }
 
-func (s *TaskService) DeleteTask(currentUser model.User, taskID string) error {
+func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	var updatedTask model.Task
+	var record model.TaskRecord
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusSubmitted {
+			return ErrInvalidTaskStatusForReject
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenReject
+		}
+
+		task.Status = TaskStatusAssigned
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		record, err = s.recordRepo.Create(txCtx, model.TaskRecord{
+			TaskID:    task.ID,
+			AuthorID:  currentUser.ID,
+			Type:      model.TaskRecordTypeReject,
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionRejected,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) ApproveTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	var updatedTask model.Task
+	var record model.TaskRecord
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusSubmitted {
+			return ErrInvalidTaskStatusForApprove
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenApprove
+		}
+
+		task.Status = TaskStatusApproved
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		record, err = s.recordRepo.Create(txCtx, model.TaskRecord{
+			TaskID:    task.ID,
+			AuthorID:  currentUser.ID,
+			Type:      model.TaskRecordTypeApprove,
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionApproved,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) CloseTask(ctx context.Context, currentUser model.User, taskID string) (model.Task, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	var updatedTask model.Task
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusApproved {
+			return ErrInvalidTaskStatusForClose
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenClose
+		}
+
+		task.Status = TaskStatusCompleted
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionClosed,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, err
+	}
+	return updatedTask, nil
+}
+
+func (s *TaskService) CancelTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	var updatedTask model.Task
+	var record model.TaskRecord
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusOpen && task.Status != TaskStatusAssigned &&
+			task.Status != TaskStatusInProgress && task.Status != TaskStatusSubmitted {
+			return ErrInvalidTaskStatusForCancel
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenCancel
+		}
+
+		task.Status = TaskStatusCancelled
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		record, err = s.recordRepo.Create(txCtx, model.TaskRecord{
+			TaskID:    task.ID,
+			AuthorID:  currentUser.ID,
+			Type:      model.TaskRecordTypeCancel,
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionCancelled,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) ReactivateTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return model.Task{}, model.TaskRecord{}, ErrInvalidTaskID
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return model.Task{}, model.TaskRecord{}, ErrEmptyTaskRecordContent
+	}
+
+	var updatedTask model.Task
+	var record model.TaskRecord
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status != TaskStatusCancelled && task.Status != TaskStatusCompleted {
+			return ErrInvalidTaskStatusForReactivate
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenReactivate
+		}
+
+		if task.AssigneeID != "" {
+			task.Status = TaskStatusAssigned
+		} else {
+			task.Status = TaskStatusOpen
+		}
+		task.UpdatedAt = time.Now().UTC()
+
+		updatedTask, err = s.repo.Update(txCtx, task)
+		if err != nil {
+			return err
+		}
+
+		record, err = s.recordRepo.Create(txCtx, model.TaskRecord{
+			TaskID:    task.ID,
+			AuthorID:  currentUser.ID,
+			Type:      model.TaskRecordTypeReactivate,
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+
+		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
+			TaskID:    updatedTask.ID,
+			ActorID:   currentUser.ID,
+			Action:    model.AuditActionReopened,
+			CreatedAt: time.Now().UTC(),
+		})
+		return err
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if err != nil {
+		return model.Task{}, model.TaskRecord{}, err
+	}
+	return updatedTask, record, nil
+}
+
+func (s *TaskService) DeleteTask(ctx context.Context, currentUser model.User, taskID string) error {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return ErrInvalidTaskID
 	}
 
-	task, err := s.repo.GetByID(taskID)
-	if err != nil {
-		return err
+	runOps := func(txCtx context.Context) error {
+		task, err := s.repo.GetByID(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenDelete
+		}
+
+		if err := s.repo.Delete(txCtx, taskID); err != nil {
+			return err
+		}
+
+		if err := s.recordRepo.DeleteByTaskID(txCtx, taskID); err != nil {
+			return err
+		}
+
+		return s.auditRepo.DeleteByTaskID(txCtx, taskID)
 	}
 
-	if task.CreatorID != currentUser.ID {
-		return ErrForbiddenDelete
+	if s.dbClient != nil {
+		return s.dbClient.RunTransaction(ctx, runOps)
 	}
-
-	if err := s.repo.Delete(taskID); err != nil {
-		return err
-	}
-
-	if err := s.recordRepo.DeleteByTaskID(taskID); err != nil {
-		return err
-	}
-
-	return s.auditRepo.DeleteByTaskID(taskID)
+	return runOps(ctx)
 }
 
-func (s *TaskService) ListTaskAuditLogs(taskID string) ([]model.AuditLog, error) {
+func (s *TaskService) ListTaskAuditLogs(ctx context.Context, taskID string) ([]model.AuditLog, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return nil, ErrInvalidTaskID
 	}
 
-	if _, err := s.repo.GetByID(taskID); err != nil {
+	if _, err := s.repo.GetByID(ctx, taskID); err != nil {
 		return nil, err
 	}
 
-	return s.auditRepo.ListByTaskID(taskID)
+	return s.auditRepo.ListByTaskID(ctx, taskID)
 }

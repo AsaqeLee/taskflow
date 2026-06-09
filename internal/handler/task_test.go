@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,7 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_100",
 		Title:       "Start via HTTP",
 		Description: "test",
@@ -67,7 +68,7 @@ func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_101",
 		Title:       "Forbidden start",
 		Description: "test",
@@ -102,7 +103,7 @@ func TestTaskHandler_StartReturnsBadRequestForOpenTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_102",
 		Title:       "Open task",
 		Description: "test",
@@ -138,7 +139,7 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_110",
 		Title:       "Submit via HTTP",
 		Description: "test",
@@ -192,7 +193,7 @@ func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_111",
 		Title:       "Forbidden submit",
 		Description: "test",
@@ -229,7 +230,7 @@ func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_112",
 		Title:       "Wrong status",
 		Description: "test",
@@ -266,7 +267,7 @@ func TestTaskHandler_SubmitReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_113",
 		Title:       "Missing content",
 		Description: "test",
@@ -303,7 +304,7 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_120",
 		Title:       "Reject via HTTP",
 		Description: "test",
@@ -357,7 +358,7 @@ func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_121",
 		Title:       "Forbidden reject",
 		Description: "test",
@@ -394,7 +395,7 @@ func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_122",
 		Title:       "Wrong reject status",
 		Description: "test",
@@ -431,7 +432,7 @@ func TestTaskHandler_RejectReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_123",
 		Title:       "Missing reject content",
 		Description: "test",
@@ -468,7 +469,7 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_130",
 		Title:       "Approve via HTTP",
 		Description: "test",
@@ -521,7 +522,7 @@ func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_131",
 		Title:       "Forbidden approve",
 		Description: "test",
@@ -557,7 +558,7 @@ func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_132",
 		Title:       "Wrong approve status",
 		Description: "test",
@@ -594,7 +595,7 @@ func TestTaskHandler_ApproveReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_133",
 		Title:       "Missing approve content",
 		Description: "test",
@@ -630,7 +631,7 @@ func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_140",
 		Title:       "Close via HTTP",
 		Description: "test",
@@ -675,7 +676,7 @@ func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_141",
 		Title:       "Forbidden close",
 		Description: "test",
@@ -710,7 +711,7 @@ func TestTaskHandler_CloseReturnsBadRequestForNonApprovedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_142",
 		Title:       "Wrong close status",
 		Description: "test",
@@ -746,7 +747,7 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_150",
 		Title:       "List records via HTTP",
 		Description: "test",
@@ -760,7 +761,7 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	first, err := recordRepo.Create(model.TaskRecord{
+	first, err := recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_150",
 		AuthorID:  "u_worker_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -770,7 +771,7 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed first record: %v", err)
 	}
-	second, err := recordRepo.Create(model.TaskRecord{
+	second, err := recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_150",
 		AuthorID:  "u_test_001",
 		Type:      model.TaskRecordTypeApprove,
@@ -835,7 +836,7 @@ func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_cancel_1",
 		Title:       "Cancel Task",
 		Status:      service.TaskStatusOpen,
@@ -883,7 +884,7 @@ func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_cancel_2",
 		Title:       "Cancel Task Error",
 		Status:      service.TaskStatusOpen,
@@ -917,7 +918,7 @@ func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_react_1",
 		Title:       "Reactivate Task",
 		Status:      service.TaskStatusCancelled,
@@ -962,7 +963,7 @@ func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_del_1",
 		Title:       "Delete Task",
 		Status:      service.TaskStatusOpen,
@@ -988,7 +989,7 @@ func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 	}
 
 	// Verify task is gone
-	_, err = repo.GetByID("task_del_1")
+	_, err = repo.GetByID(context.Background(), "task_del_1")
 	if err != repository.ErrTaskNotFound {
 		t.Fatalf("expected task to be deleted")
 	}
@@ -1001,7 +1002,7 @@ func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_del_2",
 		Title:       "Delete Task Forbidden",
 		Status:      service.TaskStatusOpen,
@@ -1035,7 +1036,7 @@ func TestTaskHandler_ListAuditLogsReturnsLogs(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_audit_1",
 		Title:       "Audit Log API",
 		Status:      service.TaskStatusOpen,
@@ -1047,7 +1048,7 @@ func TestTaskHandler_ListAuditLogsReturnsLogs(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = auditRepo.Create(model.AuditLog{
+	_, err = auditRepo.Create(context.Background(), model.AuditLog{
 		TaskID:    "task_audit_1",
 		ActorID:   "u_test_001",
 		Action:    model.AuditActionCreated,

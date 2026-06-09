@@ -26,8 +26,8 @@ func NewMongoAuditLogRepository(collection *mongo.Collection) *MongoAuditLogRepo
 	return &MongoAuditLogRepository{collection: collection}
 }
 
-func (r *MongoAuditLogRepository) Create(log model.AuditLog) (model.AuditLog, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	if log.ID == "" {
@@ -45,8 +45,8 @@ func (r *MongoAuditLogRepository) Create(log model.AuditLog) (model.AuditLog, er
 	return log, nil
 }
 
-func (r *MongoAuditLogRepository) ListByTaskID(taskID string) ([]model.AuditLog, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.AuditLog, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	cursor, err := r.collection.Find(ctx, bson.M{"task_id": taskID})
@@ -75,8 +75,8 @@ func (r *MongoAuditLogRepository) ListByTaskID(taskID string) ([]model.AuditLog,
 	return result, nil
 }
 
-func (r *MongoAuditLogRepository) DeleteByTaskID(taskID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoAuditLogRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	_, err := r.collection.DeleteMany(ctx, bson.M{"task_id": taskID})

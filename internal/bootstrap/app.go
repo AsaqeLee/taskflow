@@ -23,16 +23,17 @@ type App struct {
 }
 
 func NewApp(cfg config.Config) (*App, error) {
-	taskRepo, recordRepo, auditRepo, userRepo, db, err := newRepositories(context.Background(), cfg)
+	ctx := context.Background()
+	taskRepo, recordRepo, auditRepo, userRepo, db, err := newRepositories(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := seedDefaultUsers(userRepo); err != nil {
+	if err := seedDefaultUsers(ctx, userRepo); err != nil {
 		return nil, err
 	}
 
-	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo)
+	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
 	identityHandler := handler.NewIdentityHandler(userRepo)
 
@@ -73,7 +74,7 @@ func newRepositories(ctx context.Context, cfg config.Config) (
 		nil, nil
 }
 
-func seedDefaultUsers(userRepo repository.UserRepository) error {
+func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) error {
 	defaultUsers := []model.User{
 		{
 			ID:    "u_test_001",
@@ -96,9 +97,9 @@ func seedDefaultUsers(userRepo repository.UserRepository) error {
 	}
 
 	for _, u := range defaultUsers {
-		_, err := userRepo.FindByID(u.ID)
+		_, err := userRepo.FindByID(ctx, u.ID)
 		if err != nil {
-			_, err = userRepo.Create(u)
+			_, err = userRepo.Create(ctx, u)
 			if err != nil {
 				return fmt.Errorf("failed to seed user %s: %w", u.ID, err)
 			}

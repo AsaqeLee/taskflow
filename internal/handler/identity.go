@@ -60,7 +60,7 @@ func (h *IdentityHandler) Register(c *gin.Context) {
 		Token: token,
 	}
 
-	created, err := h.userRepo.Create(u)
+	created, err := h.userRepo.Create(c.Request.Context(), u)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "user already exists or failed to create"})
 		return

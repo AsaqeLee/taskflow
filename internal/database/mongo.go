@@ -34,3 +34,16 @@ func New(ctx context.Context, cfg config.Config) (*Client, error) {
 		DBName: cfg.MongoDB,
 	}, nil
 }
+
+func (c *Client) RunTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	session, err := c.Mongo.StartSession()
+	if err != nil {
+		return err
+	}
+	defer session.EndSession(ctx)
+
+	_, err = session.WithTransaction(ctx, func(sessCtx context.Context) (interface{}, error) {
+		return nil, fn(sessCtx)
+	})
+	return err
+}

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ func TestUserAuthMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	userRepo := repository.NewMemoryUserRepository()
-	_, err := userRepo.Create(model.User{
+	_, err := userRepo.Create(context.Background(), model.User{
 		ID:    "u_test_001",
 		Name:  "Test Creator",
 		Role:  "owner",

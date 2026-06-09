@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -84,12 +85,13 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		},
 	}
 	for _, u := range defaultUsers {
-		if _, err := userRepo.Create(u); err != nil {
+		if _, err := userRepo.Create(context.Background(), u); err != nil {
 			t.Fatalf("failed to seed user %s: %v", u.ID, err)
 		}
 	}
 
-	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo)
+	dbClient := &database.Client{Mongo: client, DBName: dbName}
+	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
 	identityHandler := NewIdentityHandler(userRepo)
 

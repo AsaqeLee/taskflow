@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -22,7 +23,7 @@ func NewMemoryAuditLogRepository() *MemoryAuditLogRepository {
 	}
 }
 
-func (r *MemoryAuditLogRepository) Create(log model.AuditLog) (model.AuditLog, error) {
+func (r *MemoryAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -38,7 +39,7 @@ func (r *MemoryAuditLogRepository) Create(log model.AuditLog) (model.AuditLog, e
 	return log, nil
 }
 
-func (r *MemoryAuditLogRepository) ListByTaskID(taskID string) ([]model.AuditLog, error) {
+func (r *MemoryAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.AuditLog, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -59,7 +60,7 @@ func (r *MemoryAuditLogRepository) ListByTaskID(taskID string) ([]model.AuditLog
 	return result, nil
 }
 
-func (r *MemoryAuditLogRepository) DeleteByTaskID(taskID string) error {
+func (r *MemoryAuditLogRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

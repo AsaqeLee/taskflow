@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -9,14 +9,6 @@ import (
 
 	"github.com/AsaqeLee/taskflow/internal/model"
 )
-
-var ErrTaskRecordNotFound = errors.New("task record not found")
-
-type TaskRecordRepository interface {
-	Create(record model.TaskRecord) (model.TaskRecord, error)
-	ListByTaskID(taskID string) ([]model.TaskRecord, error)
-	DeleteByTaskID(taskID string) error
-}
 
 type MemoryTaskRecordRepository struct {
 	mu      sync.RWMutex
@@ -31,7 +23,7 @@ func NewMemoryTaskRecordRepository() *MemoryTaskRecordRepository {
 	}
 }
 
-func (r *MemoryTaskRecordRepository) Create(record model.TaskRecord) (model.TaskRecord, error) {
+func (r *MemoryTaskRecordRepository) Create(ctx context.Context, record model.TaskRecord) (model.TaskRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -47,7 +39,7 @@ func (r *MemoryTaskRecordRepository) Create(record model.TaskRecord) (model.Task
 	return record, nil
 }
 
-func (r *MemoryTaskRecordRepository) ListByTaskID(taskID string) ([]model.TaskRecord, error) {
+func (r *MemoryTaskRecordRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -68,7 +60,7 @@ func (r *MemoryTaskRecordRepository) ListByTaskID(taskID string) ([]model.TaskRe
 	return result, nil
 }
 
-func (r *MemoryTaskRecordRepository) DeleteByTaskID(taskID string) error {
+func (r *MemoryTaskRecordRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

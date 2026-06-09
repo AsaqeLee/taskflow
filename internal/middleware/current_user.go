@@ -34,7 +34,7 @@ func UserAuth(userRepo repository.UserRepository) gin.HandlerFunc {
 		var found bool
 
 		if token != "" {
-			user, err = userRepo.FindByToken(token)
+			user, err = userRepo.FindByToken(c.Request.Context(), token)
 			if err == nil {
 				found = true
 			}
@@ -43,7 +43,7 @@ func UserAuth(userRepo repository.UserRepository) gin.HandlerFunc {
 		if !found {
 			userID := c.GetHeader("X-User-ID")
 			if userID != "" {
-				user, err = userRepo.FindByID(userID)
+				user, err = userRepo.FindByID(c.Request.Context(), userID)
 				if err == nil {
 					found = true
 				}

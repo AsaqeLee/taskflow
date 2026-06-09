@@ -32,8 +32,8 @@ func NewMongoTaskRepository(collection *mongo.Collection) *MongoTaskRepository {
 	return &MongoTaskRepository{collection: collection}
 }
 
-func (r *MongoTaskRepository) Create(task model.Task) (model.Task, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRepository) Create(ctx context.Context, task model.Task) (model.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	if task.ID == "" {
@@ -48,8 +48,8 @@ func (r *MongoTaskRepository) Create(task model.Task) (model.Task, error) {
 	return task, nil
 }
 
-func (r *MongoTaskRepository) GetByID(id string) (model.Task, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRepository) GetByID(ctx context.Context, id string) (model.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	var doc taskDocument
@@ -64,8 +64,8 @@ func (r *MongoTaskRepository) GetByID(id string) (model.Task, error) {
 	return documentToTask(doc), nil
 }
 
-func (r *MongoTaskRepository) List() ([]model.Task, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRepository) List(ctx context.Context) ([]model.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	cursor, err := r.collection.Find(ctx, bson.M{})
@@ -91,8 +91,8 @@ func (r *MongoTaskRepository) List() ([]model.Task, error) {
 	return result, nil
 }
 
-func (r *MongoTaskRepository) Update(task model.Task) (model.Task, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRepository) Update(ctx context.Context, task model.Task) (model.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	update := bson.M{"$set": bson.M{
@@ -142,8 +142,8 @@ func documentToTask(doc taskDocument) model.Task {
 	}
 }
 
-func (r *MongoTaskRepository) Delete(id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), taskOperationTimeout)
+func (r *MongoTaskRepository) Delete(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})

@@ -16,7 +16,7 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 	repo := newTestMongoTaskRecordRepository(t)
 	now := time.Now().UTC()
 
-	first, err := repo.Create(model.TaskRecord{
+	first, err := repo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_200",
 		AuthorID:  "u_worker_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -30,7 +30,7 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 		t.Fatalf("expected generated id for first record")
 	}
 
-	second, err := repo.Create(model.TaskRecord{
+	second, err := repo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_200",
 		AuthorID:  "u_owner_001",
 		Type:      model.TaskRecordTypeApprove,
@@ -44,7 +44,7 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 		t.Fatalf("expected generated id for second record")
 	}
 
-	_, err = repo.Create(model.TaskRecord{
+	_, err = repo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_other",
 		AuthorID:  "u_other_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -55,7 +55,7 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 		t.Fatalf("Create other task record: %v", err)
 	}
 
-	records, err := repo.ListByTaskID("task_200")
+	records, err := repo.ListByTaskID(context.Background(), "task_200")
 	if err != nil {
 		t.Fatalf("ListByTaskID returned error: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 func TestMongoTaskRecordRepository_ListByTaskIDReturnsEmptySliceWhenMissing(t *testing.T) {
 	repo := newTestMongoTaskRecordRepository(t)
 
-	records, err := repo.ListByTaskID("missing")
+	records, err := repo.ListByTaskID(context.Background(), "missing")
 	if err != nil {
 		t.Fatalf("ListByTaskID returned error: %v", err)
 	}

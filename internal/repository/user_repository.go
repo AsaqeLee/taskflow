@@ -1,9 +1,13 @@
 package repository
 
-import "github.com/AsaqeLee/taskflow/internal/model"
+import (
+	"context"
+
+	"github.com/AsaqeLee/taskflow/internal/model"
+)
 
 type UserRepository interface {
-	Create(user model.User) (model.User, error)
-	FindByID(id string) (model.User, error)
-	FindByToken(token string) (model.User, error)
+	Create(ctx context.Context, user model.User) (model.User, error)
+	FindByID(ctx context.Context, id string) (model.User, error)
+	FindByToken(ctx context.Context, token string) (model.User, error)
 }

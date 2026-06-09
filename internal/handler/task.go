@@ -49,7 +49,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.CreateTask(currentUser, req.Title, req.Description)
+	task, err := h.service.CreateTask(c.Request.Context(), currentUser, req.Title, req.Description)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -59,7 +59,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 }
 
 func (h *TaskHandler) GetByID(c *gin.Context) {
-	task, err := h.service.GetTask(c.Param("id"))
+	task, err := h.service.GetTask(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -69,7 +69,7 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 }
 
 func (h *TaskHandler) List(c *gin.Context) {
-	tasks, err := h.service.ListTasks()
+	tasks, err := h.service.ListTasks(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -79,7 +79,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 }
 
 func (h *TaskHandler) ListRecords(c *gin.Context) {
-	records, err := h.service.ListTaskRecords(c.Param("id"))
+	records, err := h.service.ListTaskRecords(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -95,7 +95,7 @@ func (h *TaskHandler) UpdateBasic(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.UpdateTaskBasic(c.Param("id"), req.Title, req.Description)
+	task, err := h.service.UpdateTaskBasic(c.Request.Context(), c.Param("id"), req.Title, req.Description)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -117,7 +117,7 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.AssignTask(currentUser, c.Param("id"), req.AssigneeID)
+	task, err := h.service.AssignTask(c.Request.Context(), currentUser, c.Param("id"), req.AssigneeID)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -133,7 +133,7 @@ func (h *TaskHandler) Start(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.StartTask(currentUser, c.Param("id"))
+	task, err := h.service.StartTask(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -155,7 +155,7 @@ func (h *TaskHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.SubmitTask(currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.SubmitTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -177,7 +177,7 @@ func (h *TaskHandler) Reject(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.RejectTask(currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.RejectTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -199,7 +199,7 @@ func (h *TaskHandler) Approve(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.ApproveTask(currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.ApproveTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -215,7 +215,7 @@ func (h *TaskHandler) Close(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.CloseTask(currentUser, c.Param("id"))
+	task, err := h.service.CloseTask(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -237,7 +237,7 @@ func (h *TaskHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.CancelTask(currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.CancelTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -259,7 +259,7 @@ func (h *TaskHandler) Reactivate(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.ReactivateTask(currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.ReactivateTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -275,7 +275,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	err := h.service.DeleteTask(currentUser, c.Param("id"))
+	err := h.service.DeleteTask(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -285,7 +285,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 }
 
 func (h *TaskHandler) ListAuditLogs(c *gin.Context) {
-	logs, err := h.service.ListTaskAuditLogs(c.Param("id"))
+	logs, err := h.service.ListTaskAuditLogs(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return

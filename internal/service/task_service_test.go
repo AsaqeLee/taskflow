@@ -1,12 +1,19 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
@@ -15,7 +22,7 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_001",
 		Title:       "Start flow",
 		Description: "test",
@@ -29,7 +36,7 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, err := svc.StartTask(model.User{ID: "u_worker_001"}, "task_001")
+	task, err := svc.StartTask(context.Background(), model.User{ID: "u_worker_001"}, "task_001")
 	if err != nil {
 		t.Fatalf("StartTask returned error: %v", err)
 	}
@@ -50,7 +57,7 @@ func TestStartTask_RejectsNonAssignee(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_002",
 		Title:       "Forbidden start",
 		Description: "test",
@@ -64,7 +71,7 @@ func TestStartTask_RejectsNonAssignee(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.StartTask(model.User{ID: "u_other_001"}, "task_002")
+	_, err = svc.StartTask(context.Background(), model.User{ID: "u_other_001"}, "task_002")
 	if err != ErrForbiddenStart {
 		t.Fatalf("expected ErrForbiddenStart, got %v", err)
 	}
@@ -75,7 +82,7 @@ func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_003",
 		Title:       "Wrong status",
 		Description: "test",
@@ -89,7 +96,7 @@ func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.StartTask(model.User{ID: "u_worker_001"}, "task_003")
+	_, err = svc.StartTask(context.Background(), model.User{ID: "u_worker_001"}, "task_003")
 	if err != ErrInvalidTaskStatusForStart {
 		t.Fatalf("expected ErrInvalidTaskStatusForStart, got %v", err)
 	}
@@ -100,7 +107,7 @@ func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_004",
 		Title:       "Open task",
 		Description: "test",
@@ -114,7 +121,7 @@ func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.StartTask(model.User{ID: "u_other_001"}, "task_004")
+	_, err = svc.StartTask(context.Background(), model.User{ID: "u_other_001"}, "task_004")
 	if err != ErrInvalidTaskStatusForStart {
 		t.Fatalf("expected ErrInvalidTaskStatusForStart, got %v", err)
 	}
@@ -127,7 +134,7 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_010",
 		Title:       "Submit flow",
 		Description: "test",
@@ -141,7 +148,7 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, record, err := svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_010", "Implemented the task and attached proof")
+	task, record, err := svc.SubmitTask(context.Background(), model.User{ID: "u_worker_001"}, "task_010", "Implemented the task and attached proof")
 	if err != nil {
 		t.Fatalf("SubmitTask returned error: %v", err)
 	}
@@ -175,7 +182,7 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_011",
 		Title:       "Forbidden submit",
 		Description: "test",
@@ -189,7 +196,7 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.SubmitTask(model.User{ID: "u_other_001"}, "task_011", "done")
+	_, _, err = svc.SubmitTask(context.Background(), model.User{ID: "u_other_001"}, "task_011", "done")
 	if err != ErrForbiddenSubmit {
 		t.Fatalf("expected ErrForbiddenSubmit, got %v", err)
 	}
@@ -201,7 +208,7 @@ func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_012",
 		Title:       "Wrong status",
 		Description: "test",
@@ -215,7 +222,7 @@ func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_012", "done")
+	_, _, err = svc.SubmitTask(context.Background(), model.User{ID: "u_worker_001"}, "task_012", "done")
 	if err != ErrInvalidTaskStatusForSubmit {
 		t.Fatalf("expected ErrInvalidTaskStatusForSubmit, got %v", err)
 	}
@@ -227,7 +234,7 @@ func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_013",
 		Title:       "Missing record content",
 		Description: "test",
@@ -241,7 +248,7 @@ func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.SubmitTask(model.User{ID: "u_worker_001"}, "task_013", "   ")
+	_, _, err = svc.SubmitTask(context.Background(), model.User{ID: "u_worker_001"}, "task_013", "   ")
 	if err != ErrEmptyTaskRecordContent {
 		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
 	}
@@ -254,7 +261,7 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_020",
 		Title:       "Reject flow",
 		Description: "test",
@@ -268,7 +275,7 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, record, err := svc.RejectTask(model.User{ID: "u_owner_001"}, "task_020", "Please revise the missing edge cases")
+	task, record, err := svc.RejectTask(context.Background(), model.User{ID: "u_owner_001"}, "task_020", "Please revise the missing edge cases")
 	if err != nil {
 		t.Fatalf("RejectTask returned error: %v", err)
 	}
@@ -302,7 +309,7 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_021",
 		Title:       "Forbidden reject",
 		Description: "test",
@@ -316,7 +323,7 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.RejectTask(model.User{ID: "u_other_001"}, "task_021", "needs changes")
+	_, _, err = svc.RejectTask(context.Background(), model.User{ID: "u_other_001"}, "task_021", "needs changes")
 	if err != ErrForbiddenReject {
 		t.Fatalf("expected ErrForbiddenReject, got %v", err)
 	}
@@ -328,7 +335,7 @@ func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_022",
 		Title:       "Wrong reject status",
 		Description: "test",
@@ -342,7 +349,7 @@ func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.RejectTask(model.User{ID: "u_owner_001"}, "task_022", "needs changes")
+	_, _, err = svc.RejectTask(context.Background(), model.User{ID: "u_owner_001"}, "task_022", "needs changes")
 	if err != ErrInvalidTaskStatusForReject {
 		t.Fatalf("expected ErrInvalidTaskStatusForReject, got %v", err)
 	}
@@ -354,7 +361,7 @@ func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_023",
 		Title:       "Missing reject reason",
 		Description: "test",
@@ -368,7 +375,7 @@ func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.RejectTask(model.User{ID: "u_owner_001"}, "task_023", "   ")
+	_, _, err = svc.RejectTask(context.Background(), model.User{ID: "u_owner_001"}, "task_023", "   ")
 	if err != ErrEmptyTaskRecordContent {
 		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
 	}
@@ -381,7 +388,7 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_030",
 		Title:       "Approve flow",
 		Description: "test",
@@ -395,7 +402,7 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, record, err := svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_030", "Looks good, accepted")
+	task, record, err := svc.ApproveTask(context.Background(), model.User{ID: "u_owner_001"}, "task_030", "Looks good, accepted")
 	if err != nil {
 		t.Fatalf("ApproveTask returned error: %v", err)
 	}
@@ -419,7 +426,7 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_031",
 		Title:       "Forbidden approve",
 		Description: "test",
@@ -433,7 +440,7 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.ApproveTask(model.User{ID: "u_other_001"}, "task_031", "approved")
+	_, _, err = svc.ApproveTask(context.Background(), model.User{ID: "u_other_001"}, "task_031", "approved")
 	if err != ErrForbiddenApprove {
 		t.Fatalf("expected ErrForbiddenApprove, got %v", err)
 	}
@@ -444,7 +451,7 @@ func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_032",
 		Title:       "Wrong approve status",
 		Description: "test",
@@ -458,7 +465,7 @@ func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_032", "approved")
+	_, _, err = svc.ApproveTask(context.Background(), model.User{ID: "u_owner_001"}, "task_032", "approved")
 	if err != ErrInvalidTaskStatusForApprove {
 		t.Fatalf("expected ErrInvalidTaskStatusForApprove, got %v", err)
 	}
@@ -470,7 +477,7 @@ func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_033",
 		Title:       "Missing approve content",
 		Description: "test",
@@ -484,7 +491,7 @@ func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.ApproveTask(model.User{ID: "u_owner_001"}, "task_033", "   ")
+	_, _, err = svc.ApproveTask(context.Background(), model.User{ID: "u_owner_001"}, "task_033", "   ")
 	if err != ErrEmptyTaskRecordContent {
 		t.Fatalf("expected ErrEmptyTaskRecordContent, got %v", err)
 	}
@@ -496,7 +503,7 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_040",
 		Title:       "Close flow",
 		Description: "test",
@@ -510,7 +517,7 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task, err := svc.CloseTask(model.User{ID: "u_owner_001"}, "task_040")
+	task, err := svc.CloseTask(context.Background(), model.User{ID: "u_owner_001"}, "task_040")
 	if err != nil {
 		t.Fatalf("CloseTask returned error: %v", err)
 	}
@@ -528,7 +535,7 @@ func TestCloseTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_041",
 		Title:       "Forbidden close",
 		Description: "test",
@@ -542,7 +549,7 @@ func TestCloseTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.CloseTask(model.User{ID: "u_other_001"}, "task_041")
+	_, err = svc.CloseTask(context.Background(), model.User{ID: "u_other_001"}, "task_041")
 	if err != ErrForbiddenClose {
 		t.Fatalf("expected ErrForbiddenClose, got %v", err)
 	}
@@ -553,7 +560,7 @@ func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_042",
 		Title:       "Wrong close status",
 		Description: "test",
@@ -567,7 +574,7 @@ func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = svc.CloseTask(model.User{ID: "u_owner_001"}, "task_042")
+	_, err = svc.CloseTask(context.Background(), model.User{ID: "u_owner_001"}, "task_042")
 	if err != ErrInvalidTaskStatusForClose {
 		t.Fatalf("expected ErrInvalidTaskStatusForClose, got %v", err)
 	}
@@ -579,7 +586,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_050",
 		Title:       "List records",
 		Description: "test",
@@ -593,7 +600,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	first, err := recordRepo.Create(model.TaskRecord{
+	first, err := recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_050",
 		AuthorID:  "u_worker_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -603,7 +610,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed first record: %v", err)
 	}
-	second, err := recordRepo.Create(model.TaskRecord{
+	second, err := recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_050",
 		AuthorID:  "u_owner_001",
 		Type:      model.TaskRecordTypeApprove,
@@ -613,7 +620,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed second record: %v", err)
 	}
-	_, err = recordRepo.Create(model.TaskRecord{
+	_, err = recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_other",
 		AuthorID:  "u_other_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -624,7 +631,7 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 		t.Fatalf("seed other task record: %v", err)
 	}
 
-	records, err := svc.ListTaskRecords("task_050")
+	records, err := svc.ListTaskRecords(context.Background(), "task_050")
 	if err != nil {
 		t.Fatalf("ListTaskRecords returned error: %v", err)
 	}
@@ -640,7 +647,7 @@ func TestListTaskRecords_ReturnsNotFoundForUnknownTask(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 
-	_, err := svc.ListTaskRecords("missing")
+	_, err := svc.ListTaskRecords(context.Background(), "missing")
 	if err != repository.ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}
@@ -655,7 +662,7 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 	states := []string{TaskStatusOpen, TaskStatusAssigned, TaskStatusInProgress, TaskStatusSubmitted}
 	for i, startStatus := range states {
 		taskID := fmt.Sprintf("task_cancel_%d", i)
-		_, err := repo.Create(model.Task{
+		_, err := repo.Create(context.Background(), model.Task{
 			ID:          taskID,
 			Title:       "Active Task " + startStatus,
 			Status:      startStatus,
@@ -667,7 +674,7 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 			t.Fatalf("seed task: %v", err)
 		}
 
-		updatedTask, record, err := svc.CancelTask(model.User{ID: "u_owner_001"}, taskID, "Cancelling this task due to scope change")
+		updatedTask, record, err := svc.CancelTask(context.Background(), model.User{ID: "u_owner_001"}, taskID, "Cancelling this task due to scope change")
 		if err != nil {
 			t.Fatalf("CancelTask from %s returned error: %v", startStatus, err)
 		}
@@ -689,7 +696,7 @@ func TestCancelTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:        "task_cancel_err",
 		Title:     "Cancel Error",
 		Status:    TaskStatusOpen,
@@ -701,7 +708,7 @@ func TestCancelTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.CancelTask(model.User{ID: "u_other_001"}, "task_cancel_err", "cancel")
+	_, _, err = svc.CancelTask(context.Background(), model.User{ID: "u_other_001"}, "task_cancel_err", "cancel")
 	if err != ErrForbiddenCancel {
 		t.Fatalf("expected ErrForbiddenCancel, got %v", err)
 	}
@@ -712,7 +719,7 @@ func TestCancelTask_RejectsCompletedTask(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:        "task_cancel_comp",
 		Title:     "Cancel Completed",
 		Status:    TaskStatusCompleted,
@@ -724,7 +731,7 @@ func TestCancelTask_RejectsCompletedTask(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.CancelTask(model.User{ID: "u_owner_001"}, "task_cancel_comp", "cancel")
+	_, _, err = svc.CancelTask(context.Background(), model.User{ID: "u_owner_001"}, "task_cancel_comp", "cancel")
 	if err != ErrInvalidTaskStatusForCancel {
 		t.Fatalf("expected ErrInvalidTaskStatusForCancel, got %v", err)
 	}
@@ -737,7 +744,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	now := time.Now().UTC()
 
 	// 1. Reactivate task with no assignee (should go to open)
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:          "task_react_open",
 		Title:       "React Open",
 		Status:      TaskStatusCancelled,
@@ -750,7 +757,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task1, rec1, err := svc.ReactivateTask(model.User{ID: "u_owner_001"}, "task_react_open", "reactivating open task")
+	task1, rec1, err := svc.ReactivateTask(context.Background(), model.User{ID: "u_owner_001"}, "task_react_open", "reactivating open task")
 	if err != nil {
 		t.Fatalf("ReactivateTask open: %v", err)
 	}
@@ -762,7 +769,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	}
 
 	// 2. Reactivate task with assignee (should go to assigned)
-	_, err = repo.Create(model.Task{
+	_, err = repo.Create(context.Background(), model.Task{
 		ID:          "task_react_assign",
 		Title:       "React Assign",
 		Status:      TaskStatusCompleted,
@@ -775,7 +782,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 		t.Fatalf("seed task: %v", err)
 	}
 
-	task2, rec2, err := svc.ReactivateTask(model.User{ID: "u_owner_001"}, "task_react_assign", "reactivating assigned task")
+	task2, rec2, err := svc.ReactivateTask(context.Background(), model.User{ID: "u_owner_001"}, "task_react_assign", "reactivating assigned task")
 	if err != nil {
 		t.Fatalf("ReactivateTask assigned: %v", err)
 	}
@@ -792,7 +799,7 @@ func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:        "task_react_err",
 		Title:     "React Error",
 		Status:    TaskStatusCancelled,
@@ -804,7 +811,7 @@ func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, _, err = svc.ReactivateTask(model.User{ID: "u_other_001"}, "task_react_err", "reactivate")
+	_, _, err = svc.ReactivateTask(context.Background(), model.User{ID: "u_other_001"}, "task_react_err", "reactivate")
 	if err != ErrForbiddenReactivate {
 		t.Fatalf("expected ErrForbiddenReactivate, got %v", err)
 	}
@@ -816,7 +823,7 @@ func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:        "task_del",
 		Title:     "To Delete",
 		Status:    TaskStatusOpen,
@@ -828,7 +835,7 @@ func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = recordRepo.Create(model.TaskRecord{
+	_, err = recordRepo.Create(context.Background(), model.TaskRecord{
 		TaskID:    "task_del",
 		AuthorID:  "u_owner_001",
 		Type:      model.TaskRecordTypeSubmit,
@@ -839,19 +846,19 @@ func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 		t.Fatalf("seed record: %v", err)
 	}
 
-	err = svc.DeleteTask(model.User{ID: "u_owner_001"}, "task_del")
+	err = svc.DeleteTask(context.Background(), model.User{ID: "u_owner_001"}, "task_del")
 	if err != nil {
 		t.Fatalf("DeleteTask returned error: %v", err)
 	}
 
 	// Verify task is gone
-	_, err = repo.GetByID("task_del")
+	_, err = repo.GetByID(context.Background(), "task_del")
 	if err != repository.ErrTaskNotFound {
 		t.Fatalf("expected task to be deleted, got error: %v", err)
 	}
 
 	// Verify records are gone
-	records, err := recordRepo.ListByTaskID("task_del")
+	records, err := recordRepo.ListByTaskID(context.Background(), "task_del")
 	if err != nil {
 		t.Fatalf("ListByTaskID returned error: %v", err)
 	}
@@ -865,7 +872,7 @@ func TestDeleteTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(model.Task{
+	_, err := repo.Create(context.Background(), model.Task{
 		ID:        "task_del_err",
 		Title:     "Delete Error",
 		Status:    TaskStatusOpen,
@@ -877,7 +884,7 @@ func TestDeleteTask_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	err = svc.DeleteTask(model.User{ID: "u_other_001"}, "task_del_err")
+	err = svc.DeleteTask(context.Background(), model.User{ID: "u_other_001"}, "task_del_err")
 	if err != ErrForbiddenDelete {
 		t.Fatalf("expected ErrForbiddenDelete, got %v", err)
 	}
@@ -893,12 +900,12 @@ func TestTaskService_AuditLogsAreCreatedThroughoutLifecycle(t *testing.T) {
 	worker := model.User{ID: "u_worker_1"}
 
 	// 1. Create Task -> should log task_created
-	task, err := svc.CreateTask(creator, "Audit Test Task", "E2E audit logging verification")
+	task, err := svc.CreateTask(context.Background(), creator, "Audit Test Task", "E2E audit logging verification")
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	logs, err := svc.ListTaskAuditLogs(task.ID)
+	logs, err := svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("ListTaskAuditLogs: %v", err)
 	}
@@ -907,109 +914,174 @@ func TestTaskService_AuditLogsAreCreatedThroughoutLifecycle(t *testing.T) {
 	}
 
 	// 2. Assign Task -> should log task_assigned
-	task, err = svc.AssignTask(creator, task.ID, worker.ID)
+	task, err = svc.AssignTask(context.Background(), creator, task.ID, worker.ID)
 	if err != nil {
 		t.Fatalf("AssignTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if len(logs) != 2 || logs[1].Action != model.AuditActionAssigned {
 		t.Fatalf("expected log[1] to be %q, got %+v", model.AuditActionAssigned, logs)
 	}
 
 	// 3. Start Task -> should log task_started
-	task, err = svc.StartTask(worker, task.ID)
+	task, err = svc.StartTask(context.Background(), worker, task.ID)
 	if err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if len(logs) != 3 || logs[2].Action != model.AuditActionStarted {
 		t.Fatalf("expected log[2] to be %q, got %+v", model.AuditActionStarted, logs)
 	}
 
 	// 4. Submit Task -> should log task_submitted
-	task, _, err = svc.SubmitTask(worker, task.ID, "completed first pass")
+	task, _, err = svc.SubmitTask(context.Background(), worker, task.ID, "completed first pass")
 	if err != nil {
 		t.Fatalf("SubmitTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if len(logs) != 4 || logs[3].Action != model.AuditActionSubmitted {
 		t.Fatalf("expected log[3] to be %q", model.AuditActionSubmitted)
 	}
 
 	// 5. Reject Task -> should log task_rejected
-	task, _, err = svc.RejectTask(creator, task.ID, "need more docs")
+	task, _, err = svc.RejectTask(context.Background(), creator, task.ID, "need more docs")
 	if err != nil {
 		t.Fatalf("RejectTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if len(logs) != 5 || logs[4].Action != model.AuditActionRejected {
 		t.Fatalf("expected log[4] to be %q", model.AuditActionRejected)
 	}
 
 	// 6. Start Again
-	task, err = svc.StartTask(worker, task.ID)
+	task, err = svc.StartTask(context.Background(), worker, task.ID)
 	if err != nil {
 		t.Fatalf("StartTask again: %v", err)
 	}
 
 	// 7. Submit Again
-	task, _, err = svc.SubmitTask(worker, task.ID, "completed second pass")
+	task, _, err = svc.SubmitTask(context.Background(), worker, task.ID, "completed second pass")
 	if err != nil {
 		t.Fatalf("SubmitTask again: %v", err)
 	}
 
 	// 8. Approve Task -> should log task_approved
-	task, _, err = svc.ApproveTask(creator, task.ID, "approved")
+	task, _, err = svc.ApproveTask(context.Background(), creator, task.ID, "approved")
 	if err != nil {
 		t.Fatalf("ApproveTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if logs[7].Action != model.AuditActionApproved {
 		t.Fatalf("expected log[7] to be %q", model.AuditActionApproved)
 	}
 
 	// 9. Close Task -> should log task_closed
-	task, err = svc.CloseTask(creator, task.ID)
+	task, err = svc.CloseTask(context.Background(), creator, task.ID)
 	if err != nil {
 		t.Fatalf("CloseTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if logs[8].Action != model.AuditActionClosed {
 		t.Fatalf("expected log[8] to be %q", model.AuditActionClosed)
 	}
 
 	// 10. Reactivate Task -> should log task_reopened
-	task, _, err = svc.ReactivateTask(creator, task.ID, "needs minor bug fix")
+	task, _, err = svc.ReactivateTask(context.Background(), creator, task.ID, "needs minor bug fix")
 	if err != nil {
 		t.Fatalf("ReactivateTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if logs[9].Action != model.AuditActionReopened {
 		t.Fatalf("expected log[9] to be %q", model.AuditActionReopened)
 	}
 
 	// 11. Cancel Task -> should log task_cancelled
-	task, _, err = svc.CancelTask(creator, task.ID, "cancel it")
+	task, _, err = svc.CancelTask(context.Background(), creator, task.ID, "cancel it")
 	if err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
-	logs, _ = svc.ListTaskAuditLogs(task.ID)
+	logs, _ = svc.ListTaskAuditLogs(context.Background(), task.ID)
 	if logs[10].Action != model.AuditActionCancelled {
 		t.Fatalf("expected log[10] to be %q", model.AuditActionCancelled)
 	}
 
 	// 12. Delete Task -> should cascade delete everything
-	err = svc.DeleteTask(creator, task.ID)
+	err = svc.DeleteTask(context.Background(), creator, task.ID)
 	if err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 
 	// Verify audit logs are completely deleted
-	records, err := auditRepo.ListByTaskID(task.ID)
+	records, err := auditRepo.ListByTaskID(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("ListByTaskID: %v", err)
 	}
 	if len(records) != 0 {
 		t.Fatalf("expected 0 audit logs, got %d", len(records))
+	}
+}
+
+type mockFailingAuditLogRepository struct {
+	repository.AuditLogRepository
+}
+
+func (m *mockFailingAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
+	return model.AuditLog{}, errors.New("simulated audit log write failure")
+}
+
+func TestTaskService_TransactionRollbackOnFailure(t *testing.T) {
+	uri := os.Getenv("TASKFLOW_MONGO_TEST_URI")
+	if uri == "" {
+		t.Skip("TASKFLOW_MONGO_TEST_URI not set; skipping transaction rollback integration test")
+	}
+
+	dbName := os.Getenv("TASKFLOW_MONGO_TEST_DATABASE")
+	if dbName == "" {
+		dbName = "taskflow_transaction_test"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	if err != nil {
+		t.Fatalf("connect mongo: %v", err)
+	}
+	defer func() {
+		_ = client.Database(dbName).Collection("tasks").Drop(context.Background())
+		_ = client.Database(dbName).Collection("audit_logs").Drop(context.Background())
+		_ = client.Disconnect(context.Background())
+	}()
+
+	_ = client.Database(dbName).Collection("tasks").Drop(ctx)
+	_ = client.Database(dbName).Collection("audit_logs").Drop(ctx)
+
+	mongoDB := client.Database(dbName)
+	taskRepo := repository.NewMongoTaskRepository(mongoDB.Collection("tasks"))
+	realAuditRepo := repository.NewMongoAuditLogRepository(mongoDB.Collection("audit_logs"))
+	failingAuditRepo := &mockFailingAuditLogRepository{AuditLogRepository: realAuditRepo}
+	recordRepo := repository.NewMongoTaskRecordRepository(mongoDB.Collection("task_records"))
+
+	dbClient := &database.Client{Mongo: client, DBName: dbName}
+	svc := NewTaskService(taskRepo, recordRepo, failingAuditRepo, dbClient)
+
+	creator := model.User{ID: "u_creator_rollback"}
+
+	// Attempt to create a task. The CreateTask flow does:
+	// 1. taskRepo.Create
+	// 2. auditRepo.Create (which will fail due to our mock)
+	// Both should be rolled back!
+	_, err = svc.CreateTask(ctx, creator, "Rollback Task", "Should not be persisted")
+	if err == nil || !strings.Contains(err.Error(), "simulated audit log write failure") {
+		t.Fatalf("expected simulated audit log write failure, got: %v", err)
+	}
+
+	// Verify that the task was NOT created in the database
+	tasks, err := taskRepo.List(ctx)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("transaction rollback failed: expected 0 tasks, got %d", len(tasks))
 	}
 }
