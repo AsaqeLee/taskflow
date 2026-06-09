@@ -10,3 +10,5 @@ package.json
 tmp/
 bin/
 scripts/
+evidence/
+docs/
