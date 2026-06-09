@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func FixedTestUser() gin.HandlerFunc {
 	}
 }
 
-func UserAuth(userRepo repository.UserRepository) gin.HandlerFunc {
+func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		if len(token) > 7 && token[:7] == "Bearer " {
@@ -31,26 +32,40 @@ func UserAuth(userRepo repository.UserRepository) gin.HandlerFunc {
 
 		var user model.User
 		var err error
-		var found bool
+		var authenticated bool
 
 		if token != "" {
-			user, err = userRepo.FindByToken(c.Request.Context(), token)
-			if err == nil {
-				found = true
-			}
-		}
-
-		if !found {
-			userID := c.GetHeader("X-User-ID")
-			if userID != "" {
-				user, err = userRepo.FindByID(c.Request.Context(), userID)
+			// 1. Try to validate token as JWT
+			claims, errJwt := auth.ValidateToken(token, jwtSecret)
+			if errJwt == nil && claims != nil {
+				// JWT is valid, find the user by ID
+				user, err = userRepo.FindByID(c.Request.Context(), claims.UserID)
 				if err == nil {
-					found = true
+					authenticated = true
+				}
+			}
+
+			// 2. If JWT fails, and devMode is true, fall back to matching plain/legacy token
+			if !authenticated && devMode {
+				user, err = userRepo.FindByToken(c.Request.Context(), token)
+				if err == nil {
+					authenticated = true
 				}
 			}
 		}
 
-		if !found {
+		// 3. If still not authenticated, and devMode is true, check X-User-ID header
+		if !authenticated && devMode {
+			userID := c.GetHeader("X-User-ID")
+			if userID != "" {
+				user, err = userRepo.FindByID(c.Request.Context(), userID)
+				if err == nil {
+					authenticated = true
+				}
+			}
+		}
+
+		if !authenticated {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: invalid or missing token/user id"})
 			c.Abort()
 			return

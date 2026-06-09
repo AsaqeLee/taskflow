@@ -93,13 +93,13 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
-	identityHandler := NewIdentityHandler(userRepo)
+	identityHandler := NewIdentityHandler(userRepo, "test_secret")
 
 	r := gin.New()
 	r.POST("/users", identityHandler.Register)
 
 	authenticated := r.Group("/")
-	authenticated.Use(middleware.UserAuth(userRepo))
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
 	authenticated.GET("/me", identityHandler.Me)
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)

@@ -35,11 +35,11 @@ func NewApp(cfg config.Config) (*App, error) {
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
-	identityHandler := handler.NewIdentityHandler(userRepo)
+	identityHandler := handler.NewIdentityHandler(userRepo, cfg.JWTSecret)
 
 	return &App{
 		config:          cfg,
-		engine:          router.New(taskHandler, identityHandler, userRepo),
+		engine:          router.New(taskHandler, identityHandler, userRepo, cfg),
 		database:        db,
 		taskHandler:     taskHandler,
 		identityHandler: identityHandler,

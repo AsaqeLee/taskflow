@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
@@ -82,7 +84,7 @@ func TestUserAuthMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			r.Use(UserAuth(userRepo))
+			r.Use(UserAuth(userRepo, "test_secret", true))
 			r.GET("/test-auth", func(c *gin.Context) {
 				user, exists := CurrentUser(c)
 				if !exists {
@@ -111,6 +113,132 @@ func TestUserAuthMiddleware(t *testing.T) {
 				if resp["userID"] != tt.expectedUserID {
 					t.Fatalf("expected user ID %q, got %q", tt.expectedUserID, resp["userID"])
 				}
+			}
+		})
+	}
+}
+
+func TestUserAuthMiddleware_JWT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	userID := "u_test_jwt"
+	_, err := userRepo.Create(context.Background(), model.User{
+		ID:    userID,
+		Name:  "JWT User",
+		Role:  "owner",
+		Token: "some_legacy_token",
+	})
+	if err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	secret := "my_jwt_test_secret"
+
+	// 1. Generate valid token
+	validToken, err := auth.GenerateToken(userID, "owner", secret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	// 2. Generate expired token
+	expiredToken, err := auth.GenerateToken(userID, "owner", secret, -time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate expired token: %v", err)
+	}
+
+	// 3. Generate token with different secret
+	wrongSecretToken, err := auth.GenerateToken(userID, "owner", "wrong_secret", time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate wrong secret token: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		devMode        bool
+		setupHeaders   func(req *http.Request)
+		expectedStatus int
+	}{
+		{
+			name:    "Valid JWT in Production Mode",
+			devMode: false,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer "+validToken)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:    "Expired JWT in Production Mode",
+			devMode: false,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer "+expiredToken)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:    "Wrong Secret JWT in Production Mode",
+			devMode: false,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer "+wrongSecretToken)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:    "X-User-ID Blocked in Production Mode",
+			devMode: false,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("X-User-ID", userID)
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:    "Legacy Plain Token Blocked in Production Mode",
+			devMode: false,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer some_legacy_token")
+			},
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:    "Legacy Plain Token Allowed in Dev Mode",
+			devMode: true,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer some_legacy_token")
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:    "X-User-ID Allowed in Dev Mode",
+			devMode: true,
+			setupHeaders: func(req *http.Request) {
+				req.Header.Set("X-User-ID", userID)
+			},
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := gin.New()
+			r.Use(UserAuth(userRepo, secret, tt.devMode))
+			r.GET("/test-auth", func(c *gin.Context) {
+				user, exists := CurrentUser(c)
+				if !exists {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "user missing"})
+					return
+				}
+				c.JSON(http.StatusOK, gin.H{"userID": user.ID})
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/test-auth", nil)
+			if tt.setupHeaders != nil {
+				tt.setupHeaders(req)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Fatalf("expected status %d, got %d body=%s", tt.expectedStatus, w.Code, w.Body.String())
 			}
 		})
 	}

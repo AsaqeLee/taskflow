@@ -17,13 +17,13 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	userRepo := repository.NewMemoryUserRepository()
-	h := NewIdentityHandler(userRepo)
+	h := NewIdentityHandler(userRepo, "test_secret")
 
 	r := gin.New()
 	r.POST("/users", h.Register)
 
 	authenticated := r.Group("/")
-	authenticated.Use(middleware.UserAuth(userRepo))
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
 	authenticated.GET("/me", h.Me)
 
 	// 1. Register a new user u_test_003

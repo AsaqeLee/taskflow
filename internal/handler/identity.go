@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
+	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -12,11 +12,12 @@ import (
 )
 
 type IdentityHandler struct {
-	userRepo repository.UserRepository
+	userRepo  repository.UserRepository
+	jwtSecret string
 }
 
-func NewIdentityHandler(userRepo repository.UserRepository) *IdentityHandler {
-	return &IdentityHandler{userRepo: userRepo}
+func NewIdentityHandler(userRepo repository.UserRepository, jwtSecret string) *IdentityHandler {
+	return &IdentityHandler{userRepo: userRepo, jwtSecret: jwtSecret}
 }
 
 func (h *IdentityHandler) Me(c *gin.Context) {
@@ -46,12 +47,11 @@ func (h *IdentityHandler) Register(c *gin.Context) {
 		return
 	}
 
-	tokenBytes := make([]byte, 16)
-	if _, err := rand.Read(tokenBytes); err != nil {
+	token, err := auth.GenerateToken(req.ID, req.Role, h.jwtSecret, 2*time.Hour)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return
 	}
-	token := hex.EncodeToString(tokenBytes)
 
 	u := model.User{
 		ID:    req.ID,

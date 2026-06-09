@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/AsaqeLee/taskflow/internal/config"
 	"github.com/AsaqeLee/taskflow/internal/handler"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -11,6 +12,7 @@ func New(
 	taskHandler *handler.TaskHandler,
 	identityHandler *handler.IdentityHandler,
 	userRepo repository.UserRepository,
+	cfg config.Config,
 ) *gin.Engine {
 	r := gin.Default()
 	r.GET("/health", handler.Health)
@@ -20,7 +22,7 @@ func New(
 
 	// Authenticated routes
 	authenticated := r.Group("/")
-	authenticated.Use(middleware.UserAuth(userRepo))
+	authenticated.Use(middleware.UserAuth(userRepo, cfg.JWTSecret, cfg.DevMode))
 
 	authenticated.GET("/me", identityHandler.Me)
 	authenticated.POST("/tasks", taskHandler.Create)
