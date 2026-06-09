@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	defaultPort             = "8080"
+	defaultPort             = 8080
 	defaultMongoURI         = "mongodb://localhost:27017"
 	defaultMongoDB          = "taskflow"
 	defaultRepositoryDriver = RepositoryDriverMemory
@@ -19,7 +19,7 @@ const RepositoryDriverMemory = "memory"
 const RepositoryDriverMongo = "mongo"
 
 type Config struct {
-	Port             string `validate:"required,port"`
+	Port             int    `validate:"required,gte=1,lte=65535"`
 	MongoURI         string `validate:"required,uri"`
 	MongoDB          string `validate:"required"`
 	RepositoryDriver string `validate:"required,oneof=memory mongo"`
@@ -28,10 +28,15 @@ type Config struct {
 }
 
 func Load() Config {
-	port := getenv("PORT", defaultPort)
+	portStr := getenv("PORT", strconv.Itoa(defaultPort))
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		log.Fatalf("Invalid PORT configuration: %v", err)
+	}
+
 	mongoURI := getenv("MONGODB_URI", defaultMongoURI)
 	mongoDB := getenv("MONGODB_DATABASE", defaultMongoDB)
-	repositoryDriver := normalizeRepositoryDriver(getenv("TASK_REPOSITORY_DRIVER", defaultRepositoryDriver))
+	repositoryDriver := normalizeRepositoryDriver(getenv("TASK_REPOSITORY_DRIVER", RepositoryDriverMemory))
 	jwtSecret := getenv("JWT_SECRET", "taskflow_default_secret")
 	devMode, _ := strconv.ParseBool(getenv("DEV_MODE", "false"))
 

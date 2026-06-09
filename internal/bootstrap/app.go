@@ -113,5 +113,5 @@ func (a *App) Run() error {
 }
 
 func (a *App) addr() string {
-	return fmt.Sprintf(":%s", a.config.Port)
+	return fmt.Sprintf(":%d", a.config.Port)
 }
