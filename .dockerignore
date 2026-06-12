@@ -1,0 +1,12 @@
+.git
+.gitignore
+.serena
+node_modules
+tmp
+bin
+evidence
+docs
+scripts
+README_ZH.md
+package-lock.json
+package.json

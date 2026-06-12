@@ -4,20 +4,36 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/config"
 	"github.com/AsaqeLee/taskflow/internal/handler"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
+	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
 func New(
+	systemHandler *handler.SystemHandler,
 	taskHandler *handler.TaskHandler,
 	identityHandler *handler.IdentityHandler,
 	userRepo repository.UserRepository,
 	cfg config.Config,
+	metrics *observability.Metrics,
+	rateLimiter *middleware.RateLimiter,
+	idempotencyStore *middleware.IdempotencyStore,
 ) *gin.Engine {
-	r := gin.Default()
-	r.GET("/health", handler.Health)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(middleware.RequestContext())
+	r.Use(middleware.Timeout(cfg.RequestTimeout))
+	r.Use(middleware.RateLimit(rateLimiter))
+	r.Use(middleware.Idempotency(idempotencyStore))
+	r.Use(middleware.StructuredLogger(metrics))
+
+	r.GET("/health", systemHandler.Health)
+	r.GET("/livez", systemHandler.Livez)
+	r.GET("/readyz", systemHandler.Readyz)
+	r.GET("/metrics", systemHandler.Metrics)
 
 	// Public routes
+	r.POST("/auth/login", identityHandler.Login)
 	r.POST("/users", identityHandler.Register)
 
 	// Authenticated routes

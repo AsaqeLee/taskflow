@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/model"
 )
@@ -43,6 +44,21 @@ func (r *MemoryTaskRepository) GetByID(ctx context.Context, id string) (model.Ta
 	if !ok {
 		return model.Task{}, ErrTaskNotFound
 	}
+	if task.DeletedAt != nil {
+		return model.Task{}, ErrTaskNotFound
+	}
+
+	return task, nil
+}
+
+func (r *MemoryTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (model.Task, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	task, ok := r.tasks[id]
+	if !ok {
+		return model.Task{}, ErrTaskNotFound
+	}
 
 	return task, nil
 }
@@ -53,6 +69,9 @@ func (r *MemoryTaskRepository) List(ctx context.Context) ([]model.Task, error) {
 
 	result := make([]model.Task, 0, len(r.tasks))
 	for _, task := range r.tasks {
+		if task.DeletedAt != nil {
+			continue
+		}
 		result = append(result, task)
 	}
 
@@ -79,10 +98,23 @@ func (r *MemoryTaskRepository) Delete(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.tasks[id]; !ok {
+	task, ok := r.tasks[id]
+	if !ok {
 		return ErrTaskNotFound
 	}
 
-	delete(r.tasks, id)
+	if task.DeletedAt != nil {
+		return ErrTaskNotFound
+	}
+
+	now := timeNowUTC()
+	task.DeletedAt = &now
+	task.UpdatedAt = now
+	task.Status = "deleted"
+	r.tasks[id] = task
 	return nil
+}
+
+func timeNowUTC() time.Time {
+	return time.Now().UTC()
 }

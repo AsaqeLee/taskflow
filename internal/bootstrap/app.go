@@ -3,11 +3,19 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/config"
 	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/handler"
+	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
+	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/router"
 	"github.com/AsaqeLee/taskflow/internal/service"
@@ -18,8 +26,10 @@ type App struct {
 	config          config.Config
 	engine          *gin.Engine
 	database        *database.Client
+	metrics         *observability.Metrics
 	taskHandler     *handler.TaskHandler
 	identityHandler *handler.IdentityHandler
+	systemHandler   *handler.SystemHandler
 }
 
 func NewApp(cfg config.Config) (*App, error) {
@@ -29,20 +39,35 @@ func NewApp(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
-	if err := seedDefaultUsers(ctx, userRepo); err != nil {
-		return nil, err
+	if cfg.DevMode {
+		if err := seedDefaultUsers(ctx, userRepo); err != nil {
+			return nil, err
+		}
 	}
+
+	if db != nil {
+		if err := db.EnsureIndexes(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	metrics := observability.NewMetrics()
+	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRequests, cfg.RateLimitWindow)
+	idempotencyStore := middleware.NewIdempotencyStore(cfg.IdempotencyTTL)
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
-	identityHandler := handler.NewIdentityHandler(userRepo, cfg.JWTSecret)
+	identityHandler := handler.NewIdentityHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.DevMode)
+	systemHandler := handler.NewSystemHandler(db, metrics, cfg.AppVersion)
 
 	return &App{
 		config:          cfg,
-		engine:          router.New(taskHandler, identityHandler, userRepo, cfg),
+		engine:          router.New(systemHandler, taskHandler, identityHandler, userRepo, cfg, metrics, rateLimiter, idempotencyStore),
 		database:        db,
+		metrics:         metrics,
 		taskHandler:     taskHandler,
 		identityHandler: identityHandler,
+		systemHandler:   systemHandler,
 	}, nil
 }
 
@@ -75,41 +100,93 @@ func newRepositories(ctx context.Context, cfg config.Config) (
 }
 
 func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) error {
-	defaultUsers := []model.User{
+	defaultUsers := []struct {
+		ID       string
+		Name     string
+		Role     string
+		Token    string
+		Password string
+	}{
 		{
-			ID:    "u_test_001",
-			Name:  "Test Creator",
-			Role:  "owner",
-			Token: "token_creator",
+			ID:       "u_test_001",
+			Name:     "Test Creator",
+			Role:     "owner",
+			Token:    "token_creator",
+			Password: "creator-pass-123",
 		},
 		{
-			ID:    "u_test_002",
-			Name:  "Test Assignee",
-			Role:  "human",
-			Token: "token_assignee",
+			ID:       "u_test_002",
+			Name:     "Test Assignee",
+			Role:     "human",
+			Token:    "token_assignee",
+			Password: "assignee-pass-123",
 		},
 		{
-			ID:    "u_agent_001",
-			Name:  "Hermes Agent",
-			Role:  "agent",
-			Token: "token_agent",
+			ID:       "u_agent_001",
+			Name:     "Hermes Agent",
+			Role:     "agent",
+			Token:    "token_agent",
+			Password: "agent-pass-123",
 		},
 	}
 
 	for _, u := range defaultUsers {
 		_, err := userRepo.FindByID(ctx, u.ID)
+		if err == nil {
+			continue
+		}
+
+		passwordHash, hashErr := auth.HashPassword(u.Password)
+		if hashErr != nil {
+			return fmt.Errorf("failed to hash seed password for %s: %w", u.ID, hashErr)
+		}
+
+		now := time.Now().UTC()
+		_, err = userRepo.Create(ctx, model.User{
+			ID:           u.ID,
+			Name:         u.Name,
+			Role:         u.Role,
+			PasswordHash: passwordHash,
+			Token:        u.Token,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
 		if err != nil {
-			_, err = userRepo.Create(ctx, u)
-			if err != nil {
-				return fmt.Errorf("failed to seed user %s: %w", u.ID, err)
-			}
+			return fmt.Errorf("failed to seed user %s: %w", u.ID, err)
 		}
 	}
 	return nil
 }
 
 func (a *App) Run() error {
-	return a.engine.Run(a.addr())
+	server := &http.Server{
+		Addr:              a.config.ServerAddress(),
+		Handler:           a.engine,
+		ReadHeaderTimeout: a.config.ServerReadTimeout,
+		ReadTimeout:       a.config.ServerReadTimeout,
+		WriteTimeout:      a.config.ServerWriteTimeout,
+		IdleTimeout:       a.config.ServerWriteTimeout,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	shutdownSignals := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignals, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	case <-shutdownSignals:
+		ctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
+		defer cancel()
+		return server.Shutdown(ctx)
+	}
 }
 
 func (a *App) addr() string {

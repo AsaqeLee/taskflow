@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"errors"
+	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -14,10 +14,13 @@ type MongoUserRepository struct {
 }
 
 type userDocument struct {
-	ID    string `bson:"_id"`
-	Name  string `bson:"name"`
-	Role  string `bson:"role"`
-	Token string `bson:"token"`
+	ID           string    `bson:"_id"`
+	Name         string    `bson:"name"`
+	Role         string    `bson:"role"`
+	PasswordHash string    `bson:"password_hash"`
+	Token        string    `bson:"token,omitempty"`
+	CreatedAt    time.Time `bson:"created_at"`
+	UpdatedAt    time.Time `bson:"updated_at"`
 }
 
 func NewMongoUserRepository(collection *mongo.Collection) *MongoUserRepository {
@@ -31,10 +34,15 @@ func (r *MongoUserRepository) Create(ctx context.Context, user model.User) (mode
 	if user.ID == "" {
 		user.ID = bson.NewObjectID().Hex()
 	}
+	if user.CreatedAt.IsZero() {
+		now := time.Now().UTC()
+		user.CreatedAt = now
+		user.UpdatedAt = now
+	}
 
 	_, err := r.collection.InsertOne(ctx, userToDocument(user))
 	if err != nil {
-		return model.User{}, err
+		return model.User{}, ErrUserAlreadyExists
 	}
 
 	return user, nil
@@ -47,8 +55,8 @@ func (r *MongoUserRepository) FindByID(ctx context.Context, id string) (model.Us
 	var doc userDocument
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return model.User{}, errors.New("user not found")
+		if err == mongo.ErrNoDocuments {
+			return model.User{}, ErrUserNotFound
 		}
 		return model.User{}, err
 	}
@@ -63,8 +71,8 @@ func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (mo
 	var doc userDocument
 	err := r.collection.FindOne(ctx, bson.M{"token": token}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return model.User{}, errors.New("user not found by token")
+		if err == mongo.ErrNoDocuments {
+			return model.User{}, ErrUserNotFoundByToken
 		}
 		return model.User{}, err
 	}
@@ -74,18 +82,24 @@ func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (mo
 
 func userToDocument(user model.User) userDocument {
 	return userDocument{
-		ID:    user.ID,
-		Name:  user.Name,
-		Role:  user.Role,
-		Token: user.Token,
+		ID:           user.ID,
+		Name:         user.Name,
+		Role:         user.Role,
+		PasswordHash: user.PasswordHash,
+		Token:        user.Token,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
 	}
 }
 
 func userDocumentToModel(doc userDocument) model.User {
 	return model.User{
-		ID:    doc.ID,
-		Name:  doc.Name,
-		Role:  doc.Role,
-		Token: doc.Token,
+		ID:           doc.ID,
+		Name:         doc.Name,
+		Role:         doc.Role,
+		PasswordHash: doc.PasswordHash,
+		Token:        doc.Token,
+		CreatedAt:    doc.CreatedAt,
+		UpdatedAt:    doc.UpdatedAt,
 	}
 }

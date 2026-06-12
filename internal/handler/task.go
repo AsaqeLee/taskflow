@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/service"
@@ -39,13 +40,13 @@ func NewTaskHandler(taskService *service.TaskService) *TaskHandler {
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req createTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -71,7 +72,7 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 func (h *TaskHandler) List(c *gin.Context) {
 	tasks, err := h.service.ListTasks(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusInternalServerError, "tasks_list_failed", err.Error())
 		return
 	}
 
@@ -91,11 +92,17 @@ func (h *TaskHandler) ListRecords(c *gin.Context) {
 func (h *TaskHandler) UpdateBasic(c *gin.Context) {
 	var req updateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
-	task, err := h.service.UpdateTaskBasic(c.Request.Context(), c.Param("id"), req.Title, req.Description)
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	task, err := h.service.UpdateTaskBasic(c.Request.Context(), currentUser, c.Param("id"), req.Title, req.Description)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -107,13 +114,13 @@ func (h *TaskHandler) UpdateBasic(c *gin.Context) {
 func (h *TaskHandler) Assign(c *gin.Context) {
 	var req assignTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -129,7 +136,7 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 func (h *TaskHandler) Start(c *gin.Context) {
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -145,13 +152,13 @@ func (h *TaskHandler) Start(c *gin.Context) {
 func (h *TaskHandler) Submit(c *gin.Context) {
 	var req taskRecordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -167,13 +174,13 @@ func (h *TaskHandler) Submit(c *gin.Context) {
 func (h *TaskHandler) Reject(c *gin.Context) {
 	var req taskRecordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -189,13 +196,13 @@ func (h *TaskHandler) Reject(c *gin.Context) {
 func (h *TaskHandler) Approve(c *gin.Context) {
 	var req taskRecordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -211,7 +218,7 @@ func (h *TaskHandler) Approve(c *gin.Context) {
 func (h *TaskHandler) Close(c *gin.Context) {
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -227,13 +234,13 @@ func (h *TaskHandler) Close(c *gin.Context) {
 func (h *TaskHandler) Cancel(c *gin.Context) {
 	var req taskRecordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -249,13 +256,13 @@ func (h *TaskHandler) Cancel(c *gin.Context) {
 func (h *TaskHandler) Reactivate(c *gin.Context) {
 	var req taskRecordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -271,7 +278,7 @@ func (h *TaskHandler) Reactivate(c *gin.Context) {
 func (h *TaskHandler) Delete(c *gin.Context) {
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "current user not found in context"})
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
@@ -281,7 +288,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "task and records successfully deleted"})
+	c.JSON(http.StatusOK, gin.H{"message": "task soft-deleted"})
 }
 
 func (h *TaskHandler) ListAuditLogs(c *gin.Context) {
@@ -309,8 +316,9 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrInvalidTaskStatusForClose),
 		errors.Is(err, service.ErrInvalidTaskStatusForCancel),
 		errors.Is(err, service.ErrInvalidTaskStatusForReactivate):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_task_request", err.Error())
 	case errors.Is(err, service.ErrForbiddenAssign),
+		errors.Is(err, service.ErrForbiddenUpdate),
 		errors.Is(err, service.ErrForbiddenStart),
 		errors.Is(err, service.ErrForbiddenSubmit),
 		errors.Is(err, service.ErrForbiddenReject),
@@ -319,10 +327,10 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrForbiddenCancel),
 		errors.Is(err, service.ErrForbiddenReactivate),
 		errors.Is(err, service.ErrForbiddenDelete):
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, repository.ErrTaskNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusNotFound, "task_not_found", err.Error())
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpapi.WriteError(c, http.StatusInternalServerError, "internal_error", err.Error())
 	}
 }

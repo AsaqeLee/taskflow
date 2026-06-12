@@ -663,12 +663,12 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 	for i, startStatus := range states {
 		taskID := fmt.Sprintf("task_cancel_%d", i)
 		_, err := repo.Create(context.Background(), model.Task{
-			ID:          taskID,
-			Title:       "Active Task " + startStatus,
-			Status:      startStatus,
-			CreatorID:   "u_owner_001",
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:        taskID,
+			Title:     "Active Task " + startStatus,
+			Status:    startStatus,
+			CreatorID: "u_owner_001",
+			CreatedAt: now,
+			UpdatedAt: now,
 		})
 		if err != nil {
 			t.Fatalf("seed task: %v", err)
@@ -745,13 +745,13 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 
 	// 1. Reactivate task with no assignee (should go to open)
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_react_open",
-		Title:       "React Open",
-		Status:      TaskStatusCancelled,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:         "task_react_open",
+		Title:      "React Open",
+		Status:     TaskStatusCancelled,
+		CreatorID:  "u_owner_001",
+		AssigneeID: "",
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -770,13 +770,13 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 
 	// 2. Reactivate task with assignee (should go to assigned)
 	_, err = repo.Create(context.Background(), model.Task{
-		ID:          "task_react_assign",
-		Title:       "React Assign",
-		Status:      TaskStatusCompleted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:         "task_react_assign",
+		Title:      "React Assign",
+		Status:     TaskStatusCompleted,
+		CreatorID:  "u_owner_001",
+		AssigneeID: "u_worker_001",
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -817,7 +817,7 @@ func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 	}
 }
 
-func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
+func TestDeleteTask_OwnerSoftDeletesTaskAndRetainsRecords(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
@@ -851,19 +851,34 @@ func TestDeleteTask_OwnerCanDeleteTaskAndRecords(t *testing.T) {
 		t.Fatalf("DeleteTask returned error: %v", err)
 	}
 
-	// Verify task is gone
+	// Verify task is hidden from active reads
 	_, err = repo.GetByID(context.Background(), "task_del")
 	if err != repository.ErrTaskNotFound {
 		t.Fatalf("expected task to be deleted, got error: %v", err)
 	}
 
-	// Verify records are gone
+	// Verify task is still retained internally
+	deletedTask, err := repo.GetByIDIncludingDeleted(context.Background(), "task_del")
+	if err != nil {
+		t.Fatalf("GetByIDIncludingDeleted returned error: %v", err)
+	}
+	if deletedTask.DeletedAt == nil {
+		t.Fatalf("expected deleted_at to be populated")
+	}
+	if deletedTask.DeletedBy != "u_owner_001" {
+		t.Fatalf("expected deleted_by to be populated, got %q", deletedTask.DeletedBy)
+	}
+	if deletedTask.Status != TaskStatusDeleted {
+		t.Fatalf("expected deleted status, got %q", deletedTask.Status)
+	}
+
+	// Verify records are retained for auditability
 	records, err := recordRepo.ListByTaskID(context.Background(), "task_del")
 	if err != nil {
 		t.Fatalf("ListByTaskID returned error: %v", err)
 	}
-	if len(records) != 0 {
-		t.Fatalf("expected all records to be deleted, got %d", len(records))
+	if len(records) != 1 {
+		t.Fatalf("expected records to be retained, got %d", len(records))
 	}
 }
 
@@ -1005,19 +1020,22 @@ func TestTaskService_AuditLogsAreCreatedThroughoutLifecycle(t *testing.T) {
 		t.Fatalf("expected log[10] to be %q", model.AuditActionCancelled)
 	}
 
-	// 12. Delete Task -> should cascade delete everything
+	// 12. Delete Task -> should retain audit trail and append task_deleted
 	err = svc.DeleteTask(context.Background(), creator, task.ID)
 	if err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 
-	// Verify audit logs are completely deleted
+	// Verify audit logs are retained
 	records, err := auditRepo.ListByTaskID(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("ListByTaskID: %v", err)
 	}
-	if len(records) != 0 {
-		t.Fatalf("expected 0 audit logs, got %d", len(records))
+	if len(records) != 12 {
+		t.Fatalf("expected 12 audit logs, got %d", len(records))
+	}
+	if records[11].Action != model.AuditActionDeleted {
+		t.Fatalf("expected final audit action %q, got %q", model.AuditActionDeleted, records[11].Action)
 	}
 }
 

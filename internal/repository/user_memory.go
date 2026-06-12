@@ -2,9 +2,9 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/model"
 )
@@ -32,7 +32,12 @@ func (r *MemoryUserRepository) Create(ctx context.Context, user model.User) (mod
 	}
 
 	if _, exists := r.users[user.ID]; exists {
-		return model.User{}, errors.New("user already exists")
+		return model.User{}, ErrUserAlreadyExists
+	}
+	if user.CreatedAt.IsZero() {
+		now := time.Now().UTC()
+		user.CreatedAt = now
+		user.UpdatedAt = now
 	}
 
 	r.users[user.ID] = user
@@ -45,7 +50,7 @@ func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (model.U
 
 	user, exists := r.users[id]
 	if !exists {
-		return model.User{}, errors.New("user not found")
+		return model.User{}, ErrUserNotFound
 	}
 
 	return user, nil
@@ -61,5 +66,5 @@ func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (m
 		}
 	}
 
-	return model.User{}, errors.New("user not found by token")
+	return model.User{}, ErrUserNotFoundByToken
 }

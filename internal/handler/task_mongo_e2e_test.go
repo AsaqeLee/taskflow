@@ -93,7 +93,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
-	identityHandler := NewIdentityHandler(userRepo, "test_secret")
+	identityHandler := NewIdentityHandler(userRepo, "test_secret", time.Hour, true)
 
 	r := gin.New()
 	r.POST("/users", identityHandler.Register)
@@ -256,24 +256,19 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		}
 	}
 
-	t.Log("Step 13: Hard Delete Task")
+	t.Log("Step 13: Soft Delete Task")
 	w13 := sendRequest("DELETE", "/tasks/"+taskID, "", hCreator)
 	if w13.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w13.Code)
 	}
 
-	t.Log("Step 13.5: Verify Mongo collections are cleaned")
-	for _, collection := range []string{"tasks", "task_records", "audit_logs"} {
-		count, err := mongoDB.Collection(collection).CountDocuments(ctx, bson.M{"task_id": taskID})
-		if collection == "tasks" {
-			count, err = mongoDB.Collection(collection).CountDocuments(ctx, bson.M{"_id": taskID})
-		}
-		if err != nil {
-			t.Fatalf("count %s after delete: %v", collection, err)
-		}
-		if count != 0 {
-			t.Fatalf("expected %s cleanup after delete, got %d leftover docs", collection, count)
-		}
+	t.Log("Step 13.5: Verify Mongo task is retained with deleted_at")
+	var deletedTaskDoc bson.M
+	if err := mongoDB.Collection("tasks").FindOne(ctx, bson.M{"_id": taskID}).Decode(&deletedTaskDoc); err != nil {
+		t.Fatalf("find deleted task: %v", err)
+	}
+	if _, ok := deletedTaskDoc["deleted_at"]; !ok {
+		t.Fatalf("expected deleted_at field to be set")
 	}
 
 	t.Log("Step 14: Verify Task is gone")
@@ -282,16 +277,37 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		t.Fatalf("expected 404, got %d", w14.Code)
 	}
 
-	t.Log("Step 15: Verify Records are gone")
+	t.Log("Step 15: Verify Records are retained")
 	w15 := sendRequest("GET", "/tasks/"+taskID+"/records", "", hCreator)
-	if w15.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w15.Code)
+	if w15.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w15.Code, w15.Body.String())
+	}
+	var recRespAfterDelete struct {
+		Records []model.TaskRecord `json:"records"`
+	}
+	if err := json.Unmarshal(w15.Body.Bytes(), &recRespAfterDelete); err != nil {
+		t.Fatalf("decode records after delete: %v", err)
+	}
+	if len(recRespAfterDelete.Records) != 6 {
+		t.Fatalf("expected 6 retained records, got %d", len(recRespAfterDelete.Records))
 	}
 
-	t.Log("Step 15.5: Verify AuditLogs are gone")
+	t.Log("Step 15.5: Verify AuditLogs are retained")
 	w155 := sendRequest("GET", "/tasks/"+taskID+"/audit_logs", "", hCreator)
-	if w155.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w155.Code)
+	if w155.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w155.Code, w155.Body.String())
+	}
+	var auditRespAfterDelete struct {
+		AuditLogs []model.AuditLog `json:"audit_logs"`
+	}
+	if err := json.Unmarshal(w155.Body.Bytes(), &auditRespAfterDelete); err != nil {
+		t.Fatalf("decode audit logs after delete: %v", err)
+	}
+	if len(auditRespAfterDelete.AuditLogs) != 12 {
+		t.Fatalf("expected 12 retained audit logs, got %d", len(auditRespAfterDelete.AuditLogs))
+	}
+	if auditRespAfterDelete.AuditLogs[11].Action != model.AuditActionDeleted {
+		t.Fatalf("expected final audit action %q, got %q", model.AuditActionDeleted, auditRespAfterDelete.AuditLogs[11].Action)
 	}
 
 	t.Log("All 15 steps of MongoDB E2E verified!")

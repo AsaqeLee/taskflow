@@ -1,11 +1,11 @@
 package middleware
 
 import (
-	"net/http"
-
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/requestmeta"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,12 +13,14 @@ const currentUserKey = "currentUser"
 
 func FixedTestUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set(currentUserKey, model.User{
+		user := model.User{
 			ID:    "u_test_001",
 			Name:  "Test User",
 			Role:  "owner",
 			Token: "token_creator",
-		})
+		}
+		c.Set(currentUserKey, user)
+		c.Request = c.Request.WithContext(requestmeta.WithUserID(c.Request.Context(), user.ID))
 		c.Next()
 	}
 }
@@ -66,12 +68,12 @@ func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool
 		}
 
 		if !authenticated {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: invalid or missing token/user id"})
-			c.Abort()
+			httpapi.Unauthorized(c, "unauthorized", "invalid or missing credentials")
 			return
 		}
 
 		c.Set(currentUserKey, user)
+		c.Request = c.Request.WithContext(requestmeta.WithUserID(c.Request.Context(), user.ID))
 		c.Next()
 	}
 }

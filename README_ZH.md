@@ -21,6 +21,9 @@
 >[!IMPORTANT]
 >本系统将任务生命周期视为形式化的状态机。每一个动作（分配、启动、提交、审批）都会根据当前状态和操作者权限进行验证，以确保零非法状态转移。
 
+>[!NOTE]
+>当前运行时基线已包含：基于密码的注册与 `POST /auth/login`、生产环境 JWT 鉴权、请求/链路 ID、结构化 JSON 日志、`/health` + `/livez` + `/readyz` + `/metrics`、Mongo 索引自举、软删除与审计保留、限流与幂等键回放。
+
 ---
 
 ## 核心架构
@@ -84,8 +87,18 @@ cd taskflow
 # 完整性验证
 go test ./...
 
-# 使用内存持久化运行
-TASK_REPOSITORY_DRIVER=memory go run ./cmd/server
+# 本地开发模式启动（启用 seeded 测试用户与 X-User-ID / 旧 token fallback）
+DEV_MODE=true TASK_REPOSITORY_DRIVER=memory JWT_SECRET=change-me go run ./cmd/server
+
+# 注册带密码的新用户
+curl -X POST http://localhost:8080/users \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_demo","name":"Demo User","role":"human","password":"strong-pass-123"}'
+
+# 或登录已有用户
+curl -X POST http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_demo","password":"strong-pass-123"}'
 ```
 </details>
 

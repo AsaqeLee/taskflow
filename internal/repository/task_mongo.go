@@ -18,14 +18,16 @@ type MongoTaskRepository struct {
 }
 
 type taskDocument struct {
-	ID          string    `bson:"_id"`
-	Title       string    `bson:"title"`
-	Description string    `bson:"description"`
-	Status      string    `bson:"status"`
-	CreatorID   string    `bson:"creator_id"`
-	AssigneeID  string    `bson:"assignee_id"`
-	CreatedAt   time.Time `bson:"created_at"`
-	UpdatedAt   time.Time `bson:"updated_at"`
+	ID          string     `bson:"_id"`
+	Title       string     `bson:"title"`
+	Description string     `bson:"description"`
+	Status      string     `bson:"status"`
+	CreatorID   string     `bson:"creator_id"`
+	AssigneeID  string     `bson:"assignee_id"`
+	CreatedAt   time.Time  `bson:"created_at"`
+	UpdatedAt   time.Time  `bson:"updated_at"`
+	DeletedAt   *time.Time `bson:"deleted_at,omitempty"`
+	DeletedBy   string     `bson:"deleted_by,omitempty"`
 }
 
 func NewMongoTaskRepository(collection *mongo.Collection) *MongoTaskRepository {
@@ -53,12 +55,22 @@ func (r *MongoTaskRepository) GetByID(ctx context.Context, id string) (model.Tas
 	defer cancel()
 
 	var doc taskDocument
+	err := r.collection.FindOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}}).Decode(&doc)
+	if err != nil {
+		return model.Task{}, taskDocumentError(err)
+	}
+
+	return documentToTask(doc), nil
+}
+
+func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (model.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
+	defer cancel()
+
+	var doc taskDocument
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return model.Task{}, ErrTaskNotFound
-		}
-		return model.Task{}, err
+		return model.Task{}, taskDocumentError(err)
 	}
 
 	return documentToTask(doc), nil
@@ -68,7 +80,7 @@ func (r *MongoTaskRepository) List(ctx context.Context) ([]model.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	cursor, err := r.collection.Find(ctx, bson.M{})
+	cursor, err := r.collection.Find(ctx, bson.M{"$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}})
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +115,8 @@ func (r *MongoTaskRepository) Update(ctx context.Context, task model.Task) (mode
 		"assignee_id": task.AssigneeID,
 		"created_at":  task.CreatedAt,
 		"updated_at":  task.UpdatedAt,
+		"deleted_at":  task.DeletedAt,
+		"deleted_by":  task.DeletedBy,
 	}}
 
 	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": task.ID}, update)
@@ -126,6 +140,8 @@ func taskToDocument(task model.Task) taskDocument {
 		AssigneeID:  task.AssigneeID,
 		CreatedAt:   task.CreatedAt,
 		UpdatedAt:   task.UpdatedAt,
+		DeletedAt:   task.DeletedAt,
+		DeletedBy:   task.DeletedBy,
 	}
 }
 
@@ -139,6 +155,8 @@ func documentToTask(doc taskDocument) model.Task {
 		AssigneeID:  doc.AssigneeID,
 		CreatedAt:   doc.CreatedAt,
 		UpdatedAt:   doc.UpdatedAt,
+		DeletedAt:   doc.DeletedAt,
+		DeletedBy:   doc.DeletedBy,
 	}
 }
 
@@ -146,13 +164,26 @@ func (r *MongoTaskRepository) Delete(ctx context.Context, id string) error {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	now := time.Now().UTC()
+	update := bson.M{"$set": bson.M{
+		"deleted_at": now,
+		"updated_at": now,
+		"status":     "deleted",
+	}}
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}}, update)
 	if err != nil {
 		return err
 	}
-	if result.DeletedCount == 0 {
+	if result.MatchedCount == 0 {
 		return ErrTaskNotFound
 	}
 
 	return nil
+}
+
+func taskDocumentError(err error) error {
+	if err == mongo.ErrNoDocuments {
+		return ErrTaskNotFound
+	}
+	return err
 }

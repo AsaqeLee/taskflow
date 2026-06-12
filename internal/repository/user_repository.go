@@ -2,9 +2,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/AsaqeLee/taskflow/internal/model"
 )
+
+var ErrUserNotFound = errors.New("user not found")
+var ErrUserNotFoundByToken = errors.New("user not found by token")
+var ErrUserAlreadyExists = errors.New("user already exists")
 
 type UserRepository interface {
 	Create(ctx context.Context, user model.User) (model.User, error)

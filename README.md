@@ -21,6 +21,9 @@ English | [简体中文](./README_ZH.md)
 >[!IMPORTANT]
 >This system treats task lifecycles as a formal state machine. Every action (assign, start, submit, approve) is validated against current state and actor permissions to ensure zero illegal transitions.
 
+>[!NOTE]
+>Current runtime baseline includes password-based registration and `POST /auth/login`, JWT-only production auth, request/trace IDs, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, Mongo index bootstrap, soft delete with audit retention, rate limiting, and idempotency-key replay.
+
 ---
 
 ## Workflow Architecture
@@ -84,8 +87,18 @@ cd taskflow
 # Verify integrity
 go test ./...
 
-# Run with memory persistence
-TASK_REPOSITORY_DRIVER=memory go run ./cmd/server
+# Run local dev mode (enables seeded dev users and X-User-ID / legacy token fallback)
+DEV_MODE=true TASK_REPOSITORY_DRIVER=memory JWT_SECRET=change-me go run ./cmd/server
+
+# Register a password-based user
+curl -X POST http://localhost:8080/users \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_demo","name":"Demo User","role":"human","password":"strong-pass-123"}'
+
+# Or login with an existing user
+curl -X POST http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_demo","password":"strong-pass-123"}'
 ```
 </details>
 

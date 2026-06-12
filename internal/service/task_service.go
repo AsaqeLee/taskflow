@@ -9,6 +9,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/requestmeta"
 )
 
 const TaskStatusOpen = "open"
@@ -18,12 +19,14 @@ const TaskStatusSubmitted = "submitted"
 const TaskStatusApproved = "approved"
 const TaskStatusCompleted = "completed"
 const TaskStatusCancelled = "cancelled"
+const TaskStatusDeleted = "deleted"
 
 var ErrInvalidTaskID = errors.New("task id is required")
 var ErrEmptyTaskTitle = errors.New("task title is required")
 var ErrTooShortTaskTitle = errors.New("task title must be at least 3 characters")
 var ErrEmptyAssigneeID = errors.New("assignee id is required")
 var ErrEmptyTaskRecordContent = errors.New("task record content is required")
+var ErrForbiddenUpdate = errors.New("current user cannot update task")
 var ErrForbiddenAssign = errors.New("current user cannot assign task")
 var ErrInvalidTaskStatusForAssign = errors.New("task status does not allow assign")
 var ErrForbiddenStart = errors.New("current user cannot start task")
@@ -96,13 +99,7 @@ func (s *TaskService) CreateTask(ctx context.Context, currentUser model.User, ti
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    createdTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionCreated,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, createdTask.ID, currentUser.ID, model.AuditActionCreated, "", createdTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -135,14 +132,14 @@ func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]mod
 		return nil, ErrInvalidTaskID
 	}
 
-	if _, err := s.repo.GetByID(ctx, taskID); err != nil {
+	if _, err := s.repo.GetByIDIncludingDeleted(ctx, taskID); err != nil {
 		return nil, err
 	}
 
 	return s.recordRepo.ListByTaskID(ctx, taskID)
 }
 
-func (s *TaskService) UpdateTaskBasic(ctx context.Context, id, title, description string) (model.Task, error) {
+func (s *TaskService) UpdateTaskBasic(ctx context.Context, currentUser model.User, id, title, description string) (model.Task, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return model.Task{}, ErrInvalidTaskID
@@ -163,6 +160,9 @@ func (s *TaskService) UpdateTaskBasic(ctx context.Context, id, title, descriptio
 		task, err := s.repo.GetByID(txCtx, id)
 		if err != nil {
 			return err
+		}
+		if task.CreatorID != currentUser.ID {
+			return ErrForbiddenUpdate
 		}
 
 		task.Title = title
@@ -222,13 +222,7 @@ func (s *TaskService) AssignTask(ctx context.Context, currentUser model.User, ta
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionAssigned,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionAssigned, TaskStatusOpen, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -274,13 +268,7 @@ func (s *TaskService) StartTask(ctx context.Context, currentUser model.User, tas
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionStarted,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionStarted, TaskStatusAssigned, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -343,13 +331,7 @@ func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, ta
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionSubmitted,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionSubmitted, TaskStatusInProgress, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -412,13 +394,7 @@ func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, ta
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionRejected,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionRejected, TaskStatusSubmitted, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -481,13 +457,7 @@ func (s *TaskService) ApproveTask(ctx context.Context, currentUser model.User, t
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionApproved,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionApproved, TaskStatusSubmitted, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -533,13 +503,7 @@ func (s *TaskService) CloseTask(ctx context.Context, currentUser model.User, tas
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionClosed,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionClosed, TaskStatusApproved, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -603,13 +567,7 @@ func (s *TaskService) CancelTask(ctx context.Context, currentUser model.User, ta
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionCancelled,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionCancelled, task.Status, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -676,13 +634,7 @@ func (s *TaskService) ReactivateTask(ctx context.Context, currentUser model.User
 			return err
 		}
 
-		_, err = s.auditRepo.Create(txCtx, model.AuditLog{
-			TaskID:    updatedTask.ID,
-			ActorID:   currentUser.ID,
-			Action:    model.AuditActionReopened,
-			CreatedAt: time.Now().UTC(),
-		})
-		return err
+		return s.createAuditLog(txCtx, updatedTask.ID, currentUser.ID, model.AuditActionReopened, task.Status, updatedTask.Status)
 	}
 
 	if s.dbClient != nil {
@@ -713,15 +665,18 @@ func (s *TaskService) DeleteTask(ctx context.Context, currentUser model.User, ta
 			return ErrForbiddenDelete
 		}
 
-		if err := s.repo.Delete(txCtx, taskID); err != nil {
+		previousStatus := task.Status
+		now := time.Now().UTC()
+		task.Status = TaskStatusDeleted
+		task.DeletedAt = &now
+		task.DeletedBy = currentUser.ID
+		task.UpdatedAt = now
+
+		if _, err := s.repo.Update(txCtx, task); err != nil {
 			return err
 		}
 
-		if err := s.recordRepo.DeleteByTaskID(txCtx, taskID); err != nil {
-			return err
-		}
-
-		return s.auditRepo.DeleteByTaskID(txCtx, taskID)
+		return s.createAuditLog(txCtx, taskID, currentUser.ID, model.AuditActionDeleted, previousStatus, TaskStatusDeleted)
 	}
 
 	if s.dbClient != nil {
@@ -736,9 +691,27 @@ func (s *TaskService) ListTaskAuditLogs(ctx context.Context, taskID string) ([]m
 		return nil, ErrInvalidTaskID
 	}
 
-	if _, err := s.repo.GetByID(ctx, taskID); err != nil {
+	if _, err := s.repo.GetByIDIncludingDeleted(ctx, taskID); err != nil {
 		return nil, err
 	}
 
 	return s.auditRepo.ListByTaskID(ctx, taskID)
+}
+
+func (s *TaskService) createAuditLog(ctx context.Context, taskID, actorID, action, fromStatus, toStatus string) error {
+	meta := requestmeta.FromContext(ctx)
+	_, err := s.auditRepo.Create(ctx, model.AuditLog{
+		TaskID:         taskID,
+		ActorID:        actorID,
+		Action:         action,
+		RequestID:      meta.RequestID,
+		TraceID:        meta.TraceID,
+		IdempotencyKey: meta.IdempotencyKey,
+		SourceIP:       meta.SourceIP,
+		UserAgent:      meta.UserAgent,
+		FromStatus:     fromStatus,
+		ToStatus:       toStatus,
+		CreatedAt:      time.Now().UTC(),
+	})
+	return err
 }
