@@ -21,7 +21,7 @@ func TestIdempotencyMiddlewareReplaysStoredResponse(t *testing.T) {
 
 	r := gin.New()
 	r.Use(RequestContext())
-	r.Use(Idempotency(store))
+	r.Use(Idempotency(store, nil))
 	r.POST("/echo", func(c *gin.Context) {
 		executions.Add(1)
 		c.JSON(http.StatusCreated, gin.H{"ok": true, "count": executions.Load()})
@@ -69,7 +69,7 @@ func TestIdempotencyMiddlewareRejectsConflictingPayloads(t *testing.T) {
 
 	r := gin.New()
 	r.Use(RequestContext())
-	r.Use(Idempotency(store))
+	r.Use(Idempotency(store, nil))
 	r.POST("/echo", func(c *gin.Context) {
 		c.JSON(http.StatusCreated, gin.H{"ok": true})
 	})
@@ -96,7 +96,7 @@ func TestRateLimitMiddlewareRejectsExcessRequests(t *testing.T) {
 
 	r := gin.New()
 	r.Use(RequestContext())
-	r.Use(RateLimit(NewRateLimiter(1, time.Minute)))
+	r.Use(RateLimit(NewRateLimiter(1, time.Minute), nil, "global_http"))
 	r.GET("/limited", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})

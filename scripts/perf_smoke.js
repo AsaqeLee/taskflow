@@ -15,13 +15,41 @@ export const options = {
 };
 
 export function setup() {
-  const login = http.post(
+  let login = http.post(
     `${baseUrl}/auth/login`,
     JSON.stringify({ id: userId, password }),
     {
       headers: { "Content-Type": "application/json" },
     },
   );
+
+  if (login.status !== 200) {
+    const register = http.post(
+      `${baseUrl}/users`,
+      JSON.stringify({
+        id: userId,
+        name: "Performance User",
+        role: "human",
+        password,
+      }),
+      {
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+    check(register, {
+      "register succeeded or already exists": (response) =>
+        response.status === 201 || response.status === 409,
+    });
+
+    login = http.post(
+      `${baseUrl}/auth/login`,
+      JSON.stringify({ id: userId, password }),
+      {
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
 
   check(login, {
     "login succeeded": (response) => response.status === 200,

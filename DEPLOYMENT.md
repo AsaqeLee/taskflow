@@ -5,11 +5,11 @@
 This repository now supports a minimal production deployment baseline:
 
 - JWT-based authentication
-- refresh-token rotation, password reset, and account disable
+- refresh-token rotation, password reset, account disable, and session revoke
 - request IDs / trace IDs
 - optional OTLP distributed tracing
 - structured JSON logs
-- shared rate limiting and idempotency keys when Mongo mode is enabled
+- shared global/auth-scoped rate limiting and idempotency keys when Mongo mode is enabled
 - `/health`, `/livez`, `/readyz`, `/metrics`
 - versioned Mongo migrations via startup or `cmd/migrate`
 - soft delete with audit retention
@@ -28,6 +28,13 @@ JWT_SECRET=<strong-random-secret>
 APP_VERSION=<release-tag>
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
+RATE_LIMIT_REQUESTS=120
+RATE_LIMIT_WINDOW=1m
+LOGIN_RATE_LIMIT_REQUESTS=10
+LOGIN_RATE_LIMIT_WINDOW=5m
+PASSWORD_RESET_RATE_LIMIT_REQUESTS=5
+PASSWORD_RESET_RATE_LIMIT_WINDOW=15m
+IDEMPOTENCY_TTL=10m
 TRACING_ENABLED=false
 TRACING_ENDPOINT=otel-collector:4318
 TRACING_INSECURE=true
@@ -46,6 +53,8 @@ MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 ```bash
 docker build --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t taskflow:latest .
 ```
+
+The checked-in `go.mod` and `Dockerfile` pin the supported toolchain baseline to Go `1.25.11`.
 
 ## Run Database Migration
 
@@ -76,11 +85,19 @@ docker run --rm -p 8080:8080 \
   taskflow:latest
 ```
 
+## Local Compose Baseline
+
+```bash
+docker compose up -d --build
+bash scripts/compose_smoke.sh
+```
+
 ## Readiness and Observability
 
 - `GET /livez`: process liveness
 - `GET /readyz`: readiness, including Mongo ping when Mongo mode is enabled
 - `GET /metrics`: Prometheus-style text metrics
+- Prometheus counters include `http_requests_total`, `http_request_duration_seconds_*`, `taskflow_identity_events_total`, `taskflow_rate_limit_decisions_total`, and `taskflow_idempotency_decisions_total`
 - `X-Request-ID` and `X-Trace-ID` are echoed on every response
 - When tracing is enabled, the service emits OTLP HTTP spans and keeps trace/span IDs aligned with logs
 
@@ -119,10 +136,15 @@ Rollback remains low risk because deletes are soft deletes and the current migra
 - GitHub Actions workflow: `.github/workflows/ci.yml`
 - Security audit helper: `./scripts/security_audit.sh`
 - k6 smoke profile: `./scripts/perf_smoke.js`
+- Compose smoke helper: `./scripts/compose_smoke.sh`
+- Migration discipline: `./MIGRATIONS.md`
+- Local collector example: `./deploy/otel-collector.yaml`
+- Security baseline report: `./reports/security-baseline-2026-06-12.md`
+- Performance baseline report: `./reports/performance-baseline-2026-06-12.md`
 
 ## Current Limitations
 
 - Refresh tokens are persisted and rotated, but there is no device/session management UI.
 - Password reset token delivery is external to this repo; in `DEV_MODE=true` the reset token is echoed for local verification only.
-- OTLP tracing is optional and collector/exporter topology is left to the deployment environment.
-- CI covers build/test/vet/vulnerability scan, but does not yet run a live Mongo-backed deployment job.
+- OTLP tracing is optional and collector/exporter topology is still left to the deployment environment; the repository only ships a local collector baseline.
+- CI covers build/test/vet/vulnerability scan plus Mongo service-container and migrate smoke, but it does not yet provide CD orchestration.

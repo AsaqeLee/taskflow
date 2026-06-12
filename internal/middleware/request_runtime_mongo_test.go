@@ -1,0 +1,121 @@
+package middleware
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+const testMongoURIEnv = "TASKFLOW_MONGO_TEST_URI"
+
+func TestMongoRateLimiterSharesStateAcrossInstances(t *testing.T) {
+	collection := newMongoRuntimeCollection(t, "runtime_rate_limits")
+
+	limiterA := NewMongoRateLimiter(collection, 1, time.Minute)
+	limiterB := NewMongoRateLimiter(collection, 1, time.Minute)
+
+	now := time.Now().UTC()
+	allowed, err := limiterA.Allow(context.Background(), "shared-client", now)
+	if err != nil {
+		t.Fatalf("limiterA.Allow returned error: %v", err)
+	}
+	if !allowed {
+		t.Fatalf("expected first limiter to allow request")
+	}
+
+	allowed, err = limiterB.Allow(context.Background(), "shared-client", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("limiterB.Allow returned error: %v", err)
+	}
+	if allowed {
+		t.Fatalf("expected second limiter to observe shared limit state and reject request")
+	}
+}
+
+func TestMongoIdempotencyStoreSharesPendingAndReplayState(t *testing.T) {
+	collection := newMongoRuntimeCollection(t, "runtime_idempotency_keys")
+
+	storeA := NewMongoIdempotencyStore(collection, time.Minute)
+	storeB := NewMongoIdempotencyStore(collection, time.Minute)
+
+	now := time.Now().UTC()
+	decision, _, err := storeA.Reserve(context.Background(), "POST|/tasks|127.0.0.1", "idem-key", "request-sum", now)
+	if err != nil {
+		t.Fatalf("storeA.Reserve returned error: %v", err)
+	}
+	if decision != IdempotencyDecisionAccept {
+		t.Fatalf("expected first reserve to accept, got %v", decision)
+	}
+
+	decision, _, err = storeB.Reserve(context.Background(), "POST|/tasks|127.0.0.1", "idem-key", "request-sum", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("storeB.Reserve pending returned error: %v", err)
+	}
+	if decision != IdempotencyDecisionInProgress {
+		t.Fatalf("expected second reserve to observe in-progress state, got %v", decision)
+	}
+
+	if err := storeA.Complete(context.Background(), "POST|/tasks|127.0.0.1", "idem-key", "request-sum", IdempotencyRecord{
+		Scope:     "POST|/tasks|127.0.0.1",
+		Method:    "POST",
+		Path:      "/tasks",
+		Status:    201,
+		Body:      []byte(`{"ok":true}`),
+		Headers:   map[string]string{"Content-Type": "application/json"},
+		ExpiresAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("storeA.Complete returned error: %v", err)
+	}
+
+	decision, record, err := storeB.Reserve(context.Background(), "POST|/tasks|127.0.0.1", "idem-key", "request-sum", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("storeB.Reserve replay returned error: %v", err)
+	}
+	if decision != IdempotencyDecisionReplay {
+		t.Fatalf("expected replay decision after complete, got %v", decision)
+	}
+	if string(record.Body) != `{"ok":true}` {
+		t.Fatalf("expected replay body to be preserved, got %s", string(record.Body))
+	}
+}
+
+func newMongoRuntimeCollection(t *testing.T, collectionName string) *mongo.Collection {
+	t.Helper()
+
+	uri := os.Getenv(testMongoURIEnv)
+	if uri == "" {
+		t.Skipf("%s not set; skipping Mongo runtime integration test", testMongoURIEnv)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	if err != nil {
+		t.Fatalf("connect mongo: %v", err)
+	}
+
+	db := client.Database("taskflow_runtime_test_" + bson.NewObjectID().Hex())
+	t.Cleanup(func() {
+		_ = db.Drop(context.Background())
+		_ = client.Disconnect(context.Background())
+	})
+
+	collection := db.Collection(collectionName)
+	if err := collection.Drop(ctx); err != nil && !isNamespaceMissing(err) {
+		t.Fatalf("drop collection %s: %v", collectionName, err)
+	}
+
+	return collection
+}
+
+func isNamespaceMissing(err error) bool {
+	var commandErr mongo.CommandError
+	return errors.As(err, &commandErr) && commandErr.Code == 26
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
+	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
@@ -97,7 +98,18 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
-	identityHandler := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
+	identityHandler := NewIdentityHandler(
+		userRepo,
+		identityRepo,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+	)
 
 	r := gin.New()
 	r.POST("/users", identityHandler.Register)

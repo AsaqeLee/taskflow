@@ -26,8 +26,8 @@ func New(
 	r.Use(middleware.Tracing(tracer))
 	r.Use(middleware.RequestContext())
 	r.Use(middleware.Timeout(cfg.RequestTimeout))
-	r.Use(middleware.RateLimit(rateLimiter))
-	r.Use(middleware.Idempotency(idempotencyStore))
+	r.Use(middleware.RateLimit(rateLimiter, metrics, "global_http"))
+	r.Use(middleware.Idempotency(idempotencyStore, metrics))
 	r.Use(middleware.StructuredLogger(metrics))
 
 	r.GET("/health", systemHandler.Health)
@@ -48,6 +48,7 @@ func New(
 
 	authenticated.GET("/me", identityHandler.Me)
 	authenticated.POST("/users/:id/disable", identityHandler.DisableAccount)
+	authenticated.POST("/users/:id/revoke-sessions", identityHandler.RevokeSessions)
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)
 	authenticated.GET("/tasks/:id", taskHandler.GetByID)

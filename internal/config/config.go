@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,34 +29,40 @@ const (
 	defaultServerWriteTime  = 30 * time.Second
 	defaultRateLimitWindow  = time.Minute
 	defaultIdempotencyTTL   = 10 * time.Minute
+	defaultLoginRateWindow  = 5 * time.Minute
+	defaultResetRateWindow  = 15 * time.Minute
 )
 
 const RepositoryDriverMemory = "memory"
 const RepositoryDriverMongo = "mongo"
 
 type Config struct {
-	Port               int    `validate:"required,gte=1,lte=65535"`
-	MongoURI           string `validate:"required,uri"`
-	MongoDB            string `validate:"required"`
-	RepositoryDriver   string `validate:"required,oneof=memory mongo"`
-	JWTSecret          string `validate:"required"`
-	DevMode            bool
-	LogLevel           string        `validate:"required,oneof=debug info warn error"`
-	AccessTokenTTL     time.Duration `validate:"required,gt=0"`
-	RefreshTokenTTL    time.Duration `validate:"required,gt=0"`
-	PasswordResetTTL   time.Duration `validate:"required,gt=0"`
-	RequestTimeout     time.Duration `validate:"required,gt=0"`
-	ShutdownTimeout    time.Duration `validate:"required,gt=0"`
-	ServerReadTimeout  time.Duration `validate:"required,gt=0"`
-	ServerWriteTimeout time.Duration `validate:"required,gt=0"`
-	RateLimitRequests  int           `validate:"required,gte=0"`
-	RateLimitWindow    time.Duration `validate:"required,gt=0"`
-	IdempotencyTTL     time.Duration `validate:"required,gt=0"`
-	TracingEnabled     bool
-	TracingEndpoint    string
-	TracingInsecure    bool
-	TracingServiceName string `validate:"required"`
-	AppVersion         string `validate:"required"`
+	Port                           int    `validate:"required,gte=1,lte=65535"`
+	MongoURI                       string `validate:"required,uri"`
+	MongoDB                        string `validate:"required"`
+	RepositoryDriver               string `validate:"required,oneof=memory mongo"`
+	JWTSecret                      string `validate:"required"`
+	DevMode                        bool
+	LogLevel                       string        `validate:"required,oneof=debug info warn error"`
+	AccessTokenTTL                 time.Duration `validate:"required,gt=0"`
+	RefreshTokenTTL                time.Duration `validate:"required,gt=0"`
+	PasswordResetTTL               time.Duration `validate:"required,gt=0"`
+	RequestTimeout                 time.Duration `validate:"required,gt=0"`
+	ShutdownTimeout                time.Duration `validate:"required,gt=0"`
+	ServerReadTimeout              time.Duration `validate:"required,gt=0"`
+	ServerWriteTimeout             time.Duration `validate:"required,gt=0"`
+	RateLimitRequests              int           `validate:"required,gte=0"`
+	RateLimitWindow                time.Duration `validate:"required,gt=0"`
+	IdempotencyTTL                 time.Duration `validate:"required,gt=0"`
+	LoginRateLimitRequests         int           `validate:"required,gte=0"`
+	LoginRateLimitWindow           time.Duration `validate:"required,gt=0"`
+	PasswordResetRateLimitRequests int           `validate:"required,gte=0"`
+	PasswordResetRateLimitWindow   time.Duration `validate:"required,gt=0"`
+	TracingEnabled                 bool
+	TracingEndpoint                string
+	TracingInsecure                bool
+	TracingServiceName             string `validate:"required"`
+	AppVersion                     string `validate:"required"`
 }
 
 func Load() Config {
@@ -70,7 +79,7 @@ func Load() Config {
 	jwtSecret := strings.TrimSpace(getenvWithFile("JWT_SECRET", "JWT_SECRET_FILE", ""))
 	if jwtSecret == "" {
 		if devMode {
-			jwtSecret = "taskflow_dev_only_secret"
+			jwtSecret = newDevJWTSecret()
 		} else {
 			log.Fatal("Invalid configuration: JWT_SECRET or JWT_SECRET_FILE is required")
 		}
@@ -86,6 +95,10 @@ func Load() Config {
 	rateLimitWindow := mustParseDuration("RATE_LIMIT_WINDOW", defaultRateLimitWindow)
 	idempotencyTTL := mustParseDuration("IDEMPOTENCY_TTL", defaultIdempotencyTTL)
 	rateLimitRequests := mustParseInt("RATE_LIMIT_REQUESTS", 120)
+	loginRateLimitWindow := mustParseDuration("LOGIN_RATE_LIMIT_WINDOW", defaultLoginRateWindow)
+	loginRateLimitRequests := mustParseInt("LOGIN_RATE_LIMIT_REQUESTS", 10)
+	passwordResetRateLimitWindow := mustParseDuration("PASSWORD_RESET_RATE_LIMIT_WINDOW", defaultResetRateWindow)
+	passwordResetRateLimitRequests := mustParseInt("PASSWORD_RESET_RATE_LIMIT_REQUESTS", 5)
 	logLevel := normalizeLogLevel(getenv("LOG_LEVEL", "info"))
 	tracingEnabled, _ := strconv.ParseBool(getenv("TRACING_ENABLED", "false"))
 	tracingInsecure, _ := strconv.ParseBool(getenv("TRACING_INSECURE", "true"))
@@ -94,28 +107,32 @@ func Load() Config {
 	appVersion := getenv("APP_VERSION", "dev")
 
 	cfg := Config{
-		Port:               port,
-		MongoURI:           mongoURI,
-		MongoDB:            mongoDB,
-		RepositoryDriver:   repositoryDriver,
-		JWTSecret:          jwtSecret,
-		DevMode:            devMode,
-		LogLevel:           logLevel,
-		AccessTokenTTL:     accessTokenTTL,
-		RefreshTokenTTL:    refreshTokenTTL,
-		PasswordResetTTL:   passwordResetTTL,
-		RequestTimeout:     requestTimeout,
-		ShutdownTimeout:    shutdownTimeout,
-		ServerReadTimeout:  serverReadTimeout,
-		ServerWriteTimeout: serverWriteTimeout,
-		RateLimitRequests:  rateLimitRequests,
-		RateLimitWindow:    rateLimitWindow,
-		IdempotencyTTL:     idempotencyTTL,
-		TracingEnabled:     tracingEnabled,
-		TracingEndpoint:    tracingEndpoint,
-		TracingInsecure:    tracingInsecure,
-		TracingServiceName: tracingServiceName,
-		AppVersion:         appVersion,
+		Port:                           port,
+		MongoURI:                       mongoURI,
+		MongoDB:                        mongoDB,
+		RepositoryDriver:               repositoryDriver,
+		JWTSecret:                      jwtSecret,
+		DevMode:                        devMode,
+		LogLevel:                       logLevel,
+		AccessTokenTTL:                 accessTokenTTL,
+		RefreshTokenTTL:                refreshTokenTTL,
+		PasswordResetTTL:               passwordResetTTL,
+		RequestTimeout:                 requestTimeout,
+		ShutdownTimeout:                shutdownTimeout,
+		ServerReadTimeout:              serverReadTimeout,
+		ServerWriteTimeout:             serverWriteTimeout,
+		RateLimitRequests:              rateLimitRequests,
+		RateLimitWindow:                rateLimitWindow,
+		IdempotencyTTL:                 idempotencyTTL,
+		LoginRateLimitRequests:         loginRateLimitRequests,
+		LoginRateLimitWindow:           loginRateLimitWindow,
+		PasswordResetRateLimitRequests: passwordResetRateLimitRequests,
+		PasswordResetRateLimitWindow:   passwordResetRateLimitWindow,
+		TracingEnabled:                 tracingEnabled,
+		TracingEndpoint:                tracingEndpoint,
+		TracingInsecure:                tracingInsecure,
+		TracingServiceName:             tracingServiceName,
+		AppVersion:                     appVersion,
 	}
 
 	validate := validator.New()
@@ -144,7 +161,7 @@ func getenvWithFile(key, fileKey, fallback string) string {
 		return fallback
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := readConfiguredFile(filePath)
 	if err != nil {
 		log.Fatalf("Invalid %s configuration: %v", fileKey, err)
 	}
@@ -154,6 +171,32 @@ func getenvWithFile(key, fileKey, fallback string) string {
 		log.Fatalf("Invalid %s configuration: file is empty", fileKey)
 	}
 	return value
+}
+
+func newDevJWTSecret() string {
+	var buf [32]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		log.Fatalf("Failed to generate dev JWT secret: %v", err)
+	}
+	return hex.EncodeToString(buf[:])
+}
+
+func readConfiguredFile(filePath string) ([]byte, error) {
+	cleanPath := filepath.Clean(strings.TrimSpace(filePath))
+	if cleanPath == "" || cleanPath == "." || cleanPath == string(filepath.Separator) {
+		return nil, fmt.Errorf("file path is empty")
+	}
+	if !filepath.IsAbs(cleanPath) && (cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator))) {
+		return nil, fmt.Errorf("path traversal is not allowed")
+	}
+
+	root, err := os.OpenRoot(filepath.Dir(cleanPath))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	return root.ReadFile(filepath.Base(cleanPath))
 }
 
 func mustParseDuration(key string, fallback time.Duration) time.Duration {

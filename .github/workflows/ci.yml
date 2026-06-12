@@ -9,7 +9,17 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' mongodb://127.0.0.1:27017/admin || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +40,25 @@ jobs:
 
       - name: Dependency vulnerability audit
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Validate compose config
+        run: docker compose config >/dev/null
+
+      - name: Mongo migrate smoke
+        env:
+          DEV_MODE: "false"
+          TASK_REPOSITORY_DRIVER: mongo
+          MONGODB_URI: mongodb://127.0.0.1:27017
+          MONGODB_DATABASE: taskflow_ci_migrate
+          JWT_SECRET: ci-secret
+          APP_VERSION: ci
+          LOG_LEVEL: info
+        run: go run ./cmd/migrate
+
+      - name: Mongo integration coverage
+        env:
+          TASKFLOW_MONGO_TEST_URI: mongodb://127.0.0.1:27017
+        run: go test -count=1 -p 1 ./internal/migrations ./internal/middleware ./internal/handler ./internal/repository ./internal/service
 
       - name: Docker build
         run: docker build --build-arg APP_VERSION=${GITHUB_SHA::12} -t taskflow:${GITHUB_SHA::12} .

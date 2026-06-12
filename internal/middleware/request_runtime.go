@@ -291,7 +291,7 @@ func StructuredLogger(metrics *observability.Metrics) gin.HandlerFunc {
 	}
 }
 
-func RateLimit(limiter RateLimiter) gin.HandlerFunc {
+func RateLimit(limiter RateLimiter, metrics *observability.Metrics, scope string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if limiter == nil || !limiter.Enabled() {
 			c.Next()
@@ -300,19 +300,28 @@ func RateLimit(limiter RateLimiter) gin.HandlerFunc {
 
 		allowed, err := limiter.Allow(c.Request.Context(), c.ClientIP(), time.Now().UTC())
 		if err != nil {
+			if metrics != nil {
+				metrics.ObserveRateLimitDecision(scope, "error")
+			}
 			httpapi.AbortError(c, http.StatusInternalServerError, "rate_limit_failed", "failed to evaluate rate limit")
 			return
 		}
 		if !allowed {
+			if metrics != nil {
+				metrics.ObserveRateLimitDecision(scope, "rejected")
+			}
 			httpapi.AbortError(c, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
+		}
+		if metrics != nil {
+			metrics.ObserveRateLimitDecision(scope, "allowed")
 		}
 
 		c.Next()
 	}
 }
 
-func Idempotency(store IdempotencyStore) gin.HandlerFunc {
+func Idempotency(store IdempotencyStore, metrics *observability.Metrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if store == nil || !store.Enabled() {
 			c.Next()
@@ -342,12 +351,18 @@ func Idempotency(store IdempotencyStore) gin.HandlerFunc {
 
 		decision, record, err := store.Reserve(c.Request.Context(), scope, key, requestSum, time.Now().UTC())
 		if err != nil {
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("error")
+			}
 			httpapi.AbortError(c, http.StatusInternalServerError, "idempotency_failed", "failed to reserve idempotency key")
 			return
 		}
 
 		switch decision {
 		case IdempotencyDecisionReplay:
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("replayed")
+			}
 			for headerKey, headerValue := range record.Headers {
 				c.Header(headerKey, headerValue)
 			}
@@ -356,11 +371,20 @@ func Idempotency(store IdempotencyStore) gin.HandlerFunc {
 			c.Abort()
 			return
 		case IdempotencyDecisionConflict:
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("conflict")
+			}
 			httpapi.AbortError(c, http.StatusConflict, "idempotency_conflict", "idempotency key was already used with a different payload")
 			return
 		case IdempotencyDecisionInProgress:
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("in_progress")
+			}
 			httpapi.AbortError(c, http.StatusConflict, "idempotency_in_progress", "idempotency key is already being processed")
 			return
+		}
+		if metrics != nil {
+			metrics.ObserveIdempotencyDecision("accepted")
 		}
 
 		capture := &responseCaptureWriter{ResponseWriter: c.Writer}
@@ -368,6 +392,9 @@ func Idempotency(store IdempotencyStore) gin.HandlerFunc {
 		c.Next()
 
 		if c.Writer.Status() >= 500 {
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("released")
+			}
 			_ = store.Release(c.Request.Context(), scope, key, requestSum)
 			return
 		}

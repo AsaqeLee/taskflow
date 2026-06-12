@@ -60,10 +60,23 @@ func NewApp(cfg config.Config) (*App, error) {
 	metrics := observability.NewMetrics()
 	rateLimiter := newRateLimiter(cfg, db)
 	idempotencyStore := newIdempotencyStore(cfg, db)
+	loginRateLimiter := newScopedRateLimiter(cfg.LoginRateLimitRequests, cfg.LoginRateLimitWindow, db)
+	passwordResetRateLimiter := newScopedRateLimiter(cfg.PasswordResetRateLimitRequests, cfg.PasswordResetRateLimitWindow, db)
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
-	identityHandler := handler.NewIdentityHandler(userRepo, identityRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.PasswordResetTTL, cfg.DevMode)
+	identityHandler := handler.NewIdentityHandler(
+		userRepo,
+		identityRepo,
+		cfg.JWTSecret,
+		cfg.AccessTokenTTL,
+		cfg.RefreshTokenTTL,
+		cfg.PasswordResetTTL,
+		loginRateLimiter,
+		passwordResetRateLimiter,
+		metrics,
+		cfg.DevMode,
+	)
 	systemHandler := handler.NewSystemHandler(db, metrics, cfg.AppVersion)
 
 	return &App{
@@ -131,6 +144,17 @@ func newIdempotencyStore(cfg config.Config, db *database.Client) middleware.Idem
 		)
 	}
 	return middleware.NewMemoryIdempotencyStore(cfg.IdempotencyTTL)
+}
+
+func newScopedRateLimiter(limit int, window time.Duration, db *database.Client) middleware.RateLimiter {
+	if db != nil && db.Mongo != nil {
+		return middleware.NewMongoRateLimiter(
+			db.Mongo.Database(db.DBName).Collection("runtime_rate_limits"),
+			limit,
+			window,
+		)
+	}
+	return middleware.NewMemoryRateLimiter(limit, window)
 }
 
 func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) error {

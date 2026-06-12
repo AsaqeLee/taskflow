@@ -1,16 +1,114 @@
-version: "3.9"
-
 services:
   mongo:
     image: mongo:7
-    container_name: taskflow-mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "27018:27017"
     environment:
       MONGO_INITDB_DATABASE: taskflow
     volumes:
       - taskflow_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' mongodb://127.0.0.1:27017/admin || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4318:4318"
+      - "13133:13133"
+
+  migrate:
+    build:
+      context: .
+      args:
+        APP_VERSION: compose-local
+    restart: "no"
+    entrypoint: ["/usr/local/bin/taskflow-migrate"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DEV_MODE: "false"
+      TASK_REPOSITORY_DRIVER: mongo
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DATABASE: taskflow
+      JWT_SECRET: compose-local-secret
+      APP_VERSION: compose-local
+      LOG_LEVEL: info
+      ACCESS_TOKEN_TTL: 2h
+      REFRESH_TOKEN_TTL: 168h
+      PASSWORD_RESET_TTL: 1h
+      REQUEST_TIMEOUT: 15s
+      SHUTDOWN_TIMEOUT: 10s
+      SERVER_READ_TIMEOUT: 10s
+      SERVER_WRITE_TIMEOUT: 30s
+      RATE_LIMIT_REQUESTS: "120"
+      RATE_LIMIT_WINDOW: 1m
+      LOGIN_RATE_LIMIT_REQUESTS: "10"
+      LOGIN_RATE_LIMIT_WINDOW: 5m
+      PASSWORD_RESET_RATE_LIMIT_REQUESTS: "5"
+      PASSWORD_RESET_RATE_LIMIT_WINDOW: 15m
+      IDEMPOTENCY_TTL: 10m
+      TRACING_ENABLED: "true"
+      TRACING_ENDPOINT: otel-collector:4318
+      TRACING_INSECURE: "true"
+      TRACING_SERVICE_NAME: taskflow
+
+  taskflow:
+    build:
+      context: .
+      args:
+        APP_VERSION: compose-local
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PORT: "8080"
+      DEV_MODE: "false"
+      TASK_REPOSITORY_DRIVER: mongo
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DATABASE: taskflow
+      JWT_SECRET: compose-local-secret
+      APP_VERSION: compose-local
+      LOG_LEVEL: info
+      ACCESS_TOKEN_TTL: 2h
+      REFRESH_TOKEN_TTL: 168h
+      PASSWORD_RESET_TTL: 1h
+      REQUEST_TIMEOUT: 15s
+      SHUTDOWN_TIMEOUT: 10s
+      SERVER_READ_TIMEOUT: 10s
+      SERVER_WRITE_TIMEOUT: 30s
+      RATE_LIMIT_REQUESTS: "120"
+      RATE_LIMIT_WINDOW: 1m
+      LOGIN_RATE_LIMIT_REQUESTS: "10"
+      LOGIN_RATE_LIMIT_WINDOW: 5m
+      PASSWORD_RESET_RATE_LIMIT_REQUESTS: "5"
+      PASSWORD_RESET_RATE_LIMIT_WINDOW: 15m
+      IDEMPOTENCY_TTL: 10m
+      TRACING_ENABLED: "true"
+      TRACING_ENDPOINT: otel-collector:4318
+      TRACING_INSECURE: "true"
+      TRACING_SERVICE_NAME: taskflow
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/readyz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   taskflow_mongo_data:

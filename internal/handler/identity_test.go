@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/middleware"
+	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +19,18 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	identityRepo := repository.NewMemoryIdentityRepository()
-	h := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
+	h := NewIdentityHandler(
+		userRepo,
+		identityRepo,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+	)
 
 	r := gin.New()
 	r.POST("/users", h.Register)
@@ -31,6 +43,7 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
 	authenticated.GET("/me", h.Me)
 	authenticated.POST("/users/:id/disable", h.DisableAccount)
+	authenticated.POST("/users/:id/revoke-sessions", h.RevokeSessions)
 
 	// 1. Register a new user u_test_003
 	body := `{"id": "u_test_003", "name": "Dynamic User", "role": "human", "password": "strong-pass-123"}`
@@ -117,7 +130,18 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	identityRepo := repository.NewMemoryIdentityRepository()
-	h := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
+	h := NewIdentityHandler(
+		userRepo,
+		identityRepo,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+	)
 
 	r := gin.New()
 	r.POST("/users", h.Register)
@@ -129,6 +153,7 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 	authenticated := r.Group("/")
 	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
 	authenticated.POST("/users/:id/disable", h.DisableAccount)
+	authenticated.POST("/users/:id/revoke-sessions", h.RevokeSessions)
 
 	registerReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_reset_001","name":"Reset User","role":"human","password":"strong-pass-123"}`))
 	registerReq.Header.Set("Content-Type", "application/json")
@@ -202,5 +227,112 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 	r.ServeHTTP(loginAfterDisableResp, loginAfterDisableReq)
 	if loginAfterDisableResp.Code != http.StatusForbidden {
 		t.Fatalf("expected disabled login status 403, got %d body=%s", loginAfterDisableResp.Code, loginAfterDisableResp.Body.String())
+	}
+}
+
+func TestIdentityHandler_RefreshReuseAndSessionRevocation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	h := NewIdentityHandler(
+		userRepo,
+		identityRepo,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+	)
+
+	r := gin.New()
+	r.POST("/users", h.Register)
+	r.POST("/auth/refresh", h.Refresh)
+	r.POST("/auth/login", h.Login)
+
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	authenticated.POST("/users/:id/revoke-sessions", h.RevokeSessions)
+
+	registerReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_rotate_001","name":"Rotate User","role":"human","password":"strong-pass-123"}`))
+	registerReq.Header.Set("Content-Type", "application/json")
+	registerResp := httptest.NewRecorder()
+	r.ServeHTTP(registerResp, registerReq)
+	if registerResp.Code != http.StatusCreated {
+		t.Fatalf("expected register status 201, got %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+
+	var registered struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(registerResp.Body.Bytes(), &registered); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
+
+	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refresh_token":"`+registered.RefreshToken+`"}`))
+	refreshReq.Header.Set("Content-Type", "application/json")
+	refreshResp := httptest.NewRecorder()
+	r.ServeHTTP(refreshResp, refreshReq)
+	if refreshResp.Code != http.StatusOK {
+		t.Fatalf("expected refresh status 200, got %d body=%s", refreshResp.Code, refreshResp.Body.String())
+	}
+
+	var rotated struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(refreshResp.Body.Bytes(), &rotated); err != nil {
+		t.Fatalf("decode refresh response: %v", err)
+	}
+
+	reuseReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refresh_token":"`+registered.RefreshToken+`"}`))
+	reuseReq.Header.Set("Content-Type", "application/json")
+	reuseResp := httptest.NewRecorder()
+	r.ServeHTTP(reuseResp, reuseReq)
+	if reuseResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected reused refresh token to fail, got %d body=%s", reuseResp.Code, reuseResp.Body.String())
+	}
+
+	refreshAfterReuseReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refresh_token":"`+rotated.RefreshToken+`"}`))
+	refreshAfterReuseReq.Header.Set("Content-Type", "application/json")
+	refreshAfterReuseResp := httptest.NewRecorder()
+	r.ServeHTTP(refreshAfterReuseResp, refreshAfterReuseReq)
+	if refreshAfterReuseResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected rotated refresh token to be revoked after reuse detection, got %d body=%s", refreshAfterReuseResp.Code, refreshAfterReuseResp.Body.String())
+	}
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"id":"u_rotate_001","password":"strong-pass-123"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp := httptest.NewRecorder()
+	r.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected login status 200, got %d body=%s", loginResp.Code, loginResp.Body.String())
+	}
+
+	var loggedIn struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(loginResp.Body.Bytes(), &loggedIn); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodPost, "/users/u_rotate_001/revoke-sessions", nil)
+	revokeReq.Header.Set("Authorization", "Bearer "+loggedIn.AccessToken)
+	revokeResp := httptest.NewRecorder()
+	r.ServeHTTP(revokeResp, revokeReq)
+	if revokeResp.Code != http.StatusOK {
+		t.Fatalf("expected revoke sessions status 200, got %d body=%s", revokeResp.Code, revokeResp.Body.String())
+	}
+
+	refreshAfterRevokeReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refresh_token":"`+loggedIn.RefreshToken+`"}`))
+	refreshAfterRevokeReq.Header.Set("Content-Type", "application/json")
+	refreshAfterRevokeResp := httptest.NewRecorder()
+	r.ServeHTTP(refreshAfterRevokeResp, refreshAfterRevokeReq)
+	if refreshAfterRevokeResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked refresh token to fail, got %d body=%s", refreshAfterRevokeResp.Code, refreshAfterRevokeResp.Body.String())
 	}
 }

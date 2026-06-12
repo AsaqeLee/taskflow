@@ -53,7 +53,6 @@ func (l *MongoRateLimiter) Allow(ctx context.Context, clientID string, now time.
 			"client_id":    clientID,
 			"window_start": windowStart,
 			"window_end":   windowEnd,
-			"count":        0,
 		},
 		"$set": bson.M{
 			"expires_at": windowEnd,
