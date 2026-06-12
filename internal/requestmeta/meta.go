@@ -12,6 +12,7 @@ const contextKey key = "requestMeta"
 type Meta struct {
 	RequestID      string
 	TraceID        string
+	SpanID         string
 	IdempotencyKey string
 	SourceIP       string
 	UserAgent      string

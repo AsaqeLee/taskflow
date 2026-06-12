@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := db.EnsureIndexes(context.Background()); err != nil {
+	if err := db.ApplyMigrations(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -27,6 +27,7 @@ type App struct {
 	engine          *gin.Engine
 	database        *database.Client
 	metrics         *observability.Metrics
+	tracingShutdown func(context.Context) error
 	taskHandler     *handler.TaskHandler
 	identityHandler *handler.IdentityHandler
 	systemHandler   *handler.SystemHandler
@@ -34,7 +35,12 @@ type App struct {
 
 func NewApp(cfg config.Config) (*App, error) {
 	ctx := context.Background()
-	taskRepo, recordRepo, auditRepo, userRepo, db, err := newRepositories(ctx, cfg)
+	tracer, tracingShutdown, err := observability.ConfigureTracing(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	taskRepo, recordRepo, auditRepo, userRepo, identityRepo, db, err := newRepositories(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -46,25 +52,26 @@ func NewApp(cfg config.Config) (*App, error) {
 	}
 
 	if db != nil {
-		if err := db.EnsureIndexes(ctx); err != nil {
+		if err := db.ApplyMigrations(ctx); err != nil {
 			return nil, err
 		}
 	}
 
 	metrics := observability.NewMetrics()
-	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRequests, cfg.RateLimitWindow)
-	idempotencyStore := middleware.NewIdempotencyStore(cfg.IdempotencyTTL)
+	rateLimiter := newRateLimiter(cfg, db)
+	idempotencyStore := newIdempotencyStore(cfg, db)
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
-	identityHandler := handler.NewIdentityHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.DevMode)
+	identityHandler := handler.NewIdentityHandler(userRepo, identityRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.PasswordResetTTL, cfg.DevMode)
 	systemHandler := handler.NewSystemHandler(db, metrics, cfg.AppVersion)
 
 	return &App{
 		config:          cfg,
-		engine:          router.New(systemHandler, taskHandler, identityHandler, userRepo, cfg, metrics, rateLimiter, idempotencyStore),
+		engine:          router.New(systemHandler, taskHandler, identityHandler, userRepo, cfg, tracer, metrics, rateLimiter, idempotencyStore),
 		database:        db,
 		metrics:         metrics,
+		tracingShutdown: tracingShutdown,
 		taskHandler:     taskHandler,
 		identityHandler: identityHandler,
 		systemHandler:   systemHandler,
@@ -76,19 +83,24 @@ func newRepositories(ctx context.Context, cfg config.Config) (
 	repository.TaskRecordRepository,
 	repository.AuditLogRepository,
 	repository.UserRepository,
+	repository.IdentityRepository,
 	*database.Client,
 	error,
 ) {
 	if cfg.RepositoryDriver == config.RepositoryDriverMongo {
 		db, err := database.New(ctx, cfg)
 		if err != nil {
-			return nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, err
 		}
 		mongoDB := db.Mongo.Database(db.DBName)
 		return repository.NewMongoTaskRepository(mongoDB.Collection("tasks")),
 			repository.NewMongoTaskRecordRepository(mongoDB.Collection("task_records")),
 			repository.NewMongoAuditLogRepository(mongoDB.Collection("audit_logs")),
 			repository.NewMongoUserRepository(mongoDB.Collection("users")),
+			repository.NewMongoIdentityRepository(
+				mongoDB.Collection("refresh_tokens"),
+				mongoDB.Collection("password_reset_tokens"),
+			),
 			db, nil
 	}
 
@@ -96,7 +108,29 @@ func newRepositories(ctx context.Context, cfg config.Config) (
 		repository.NewMemoryTaskRecordRepository(),
 		repository.NewMemoryAuditLogRepository(),
 		repository.NewMemoryUserRepository(),
+		repository.NewMemoryIdentityRepository(),
 		nil, nil
+}
+
+func newRateLimiter(cfg config.Config, db *database.Client) middleware.RateLimiter {
+	if db != nil && db.Mongo != nil {
+		return middleware.NewMongoRateLimiter(
+			db.Mongo.Database(db.DBName).Collection("runtime_rate_limits"),
+			cfg.RateLimitRequests,
+			cfg.RateLimitWindow,
+		)
+	}
+	return middleware.NewMemoryRateLimiter(cfg.RateLimitRequests, cfg.RateLimitWindow)
+}
+
+func newIdempotencyStore(cfg config.Config, db *database.Client) middleware.IdempotencyStore {
+	if db != nil && db.Mongo != nil {
+		return middleware.NewMongoIdempotencyStore(
+			db.Mongo.Database(db.DBName).Collection("runtime_idempotency_keys"),
+			cfg.IdempotencyTTL,
+		)
+	}
+	return middleware.NewMemoryIdempotencyStore(cfg.IdempotencyTTL)
 }
 
 func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) error {
@@ -159,6 +193,12 @@ func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) e
 }
 
 func (a *App) Run() error {
+	defer func() {
+		if a.tracingShutdown != nil {
+			_ = a.tracingShutdown(context.Background())
+		}
+	}()
+
 	server := &http.Server{
 		Addr:              a.config.ServerAddress(),
 		Handler:           a.engine,

@@ -63,6 +63,10 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	recordRepo := repository.NewMongoTaskRecordRepository(mongoDB.Collection("task_records"))
 	auditRepo := repository.NewMongoAuditLogRepository(mongoDB.Collection("audit_logs"))
 	userRepo := repository.NewMongoUserRepository(mongoDB.Collection("users"))
+	identityRepo := repository.NewMongoIdentityRepository(
+		mongoDB.Collection("refresh_tokens"),
+		mongoDB.Collection("password_reset_tokens"),
+	)
 
 	defaultUsers := []model.User{
 		{
@@ -93,7 +97,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
-	identityHandler := NewIdentityHandler(userRepo, "test_secret", time.Hour, true)
+	identityHandler := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
 
 	r := gin.New()
 	r.POST("/users", identityHandler.Register)

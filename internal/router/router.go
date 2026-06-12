@@ -7,6 +7,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func New(
@@ -15,12 +16,14 @@ func New(
 	identityHandler *handler.IdentityHandler,
 	userRepo repository.UserRepository,
 	cfg config.Config,
+	tracer trace.Tracer,
 	metrics *observability.Metrics,
-	rateLimiter *middleware.RateLimiter,
-	idempotencyStore *middleware.IdempotencyStore,
+	rateLimiter middleware.RateLimiter,
+	idempotencyStore middleware.IdempotencyStore,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.Tracing(tracer))
 	r.Use(middleware.RequestContext())
 	r.Use(middleware.Timeout(cfg.RequestTimeout))
 	r.Use(middleware.RateLimit(rateLimiter))
@@ -34,6 +37,9 @@ func New(
 
 	// Public routes
 	r.POST("/auth/login", identityHandler.Login)
+	r.POST("/auth/refresh", identityHandler.Refresh)
+	r.POST("/auth/password-reset/request", identityHandler.RequestPasswordReset)
+	r.POST("/auth/password-reset/confirm", identityHandler.ConfirmPasswordReset)
 	r.POST("/users", identityHandler.Register)
 
 	// Authenticated routes
@@ -41,6 +47,7 @@ func New(
 	authenticated.Use(middleware.UserAuth(userRepo, cfg.JWTSecret, cfg.DevMode))
 
 	authenticated.GET("/me", identityHandler.Me)
+	authenticated.POST("/users/:id/disable", identityHandler.DisableAccount)
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)
 	authenticated.GET("/tasks/:id", taskHandler.GetByID)

@@ -39,6 +39,9 @@ func (r *MemoryUserRepository) Create(ctx context.Context, user model.User) (mod
 		user.CreatedAt = now
 		user.UpdatedAt = now
 	}
+	if !user.Active && user.DisabledAt == nil {
+		user.Active = true
+	}
 
 	r.users[user.ID] = user
 	return user, nil
@@ -67,4 +70,36 @@ func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (m
 	}
 
 	return model.User{}, ErrUserNotFoundByToken
+}
+
+func (r *MemoryUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (model.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	user, exists := r.users[id]
+	if !exists {
+		return model.User{}, ErrUserNotFound
+	}
+
+	user.PasswordHash = passwordHash
+	user.UpdatedAt = updatedAt
+	r.users[id] = user
+	return user, nil
+}
+
+func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (model.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	user, exists := r.users[id]
+	if !exists {
+		return model.User{}, ErrUserNotFound
+	}
+
+	user.Active = false
+	user.DisabledBy = disabledBy
+	user.DisabledAt = &disabledAt
+	user.UpdatedAt = disabledAt
+	r.users[id] = user
+	return user, nil
 }

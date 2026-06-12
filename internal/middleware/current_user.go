@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"net/http"
+
 	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/model"
@@ -14,10 +16,11 @@ const currentUserKey = "currentUser"
 func FixedTestUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user := model.User{
-			ID:    "u_test_001",
-			Name:  "Test User",
-			Role:  "owner",
-			Token: "token_creator",
+			ID:     "u_test_001",
+			Name:   "Test User",
+			Role:   "owner",
+			Token:  "token_creator",
+			Active: true,
 		}
 		c.Set(currentUserKey, user)
 		c.Request = c.Request.WithContext(requestmeta.WithUserID(c.Request.Context(), user.ID))
@@ -69,6 +72,10 @@ func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool
 
 		if !authenticated {
 			httpapi.Unauthorized(c, "unauthorized", "invalid or missing credentials")
+			return
+		}
+		if !user.Active {
+			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
 			return
 		}
 

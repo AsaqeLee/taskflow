@@ -17,6 +17,12 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/requestmeta"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	idempotencyStatePending   = "pending"
+	idempotencyStateCompleted = "completed"
 )
 
 type responseCaptureWriter struct {
@@ -29,7 +35,7 @@ func (w *responseCaptureWriter) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
 }
 
-type idempotencyRecord struct {
+type IdempotencyRecord struct {
 	Scope      string
 	Method     string
 	Path       string
@@ -38,19 +44,116 @@ type idempotencyRecord struct {
 	Body       []byte
 	Headers    map[string]string
 	ExpiresAt  time.Time
+	State      string
 }
 
-type IdempotencyStore struct {
+type IdempotencyDecision int
+
+const (
+	IdempotencyDecisionAccept IdempotencyDecision = iota
+	IdempotencyDecisionReplay
+	IdempotencyDecisionConflict
+	IdempotencyDecisionInProgress
+)
+
+type IdempotencyStore interface {
+	Enabled() bool
+	TTL() time.Duration
+	Reserve(ctx context.Context, scope, key, requestSum string, now time.Time) (IdempotencyDecision, IdempotencyRecord, error)
+	Complete(ctx context.Context, scope, key, requestSum string, record IdempotencyRecord) error
+	Release(ctx context.Context, scope, key, requestSum string) error
+}
+
+type MemoryIdempotencyStore struct {
 	mu      sync.Mutex
 	ttl     time.Duration
-	records map[string]idempotencyRecord
+	records map[string]IdempotencyRecord
 }
 
-func NewIdempotencyStore(ttl time.Duration) *IdempotencyStore {
-	return &IdempotencyStore{
+func NewMemoryIdempotencyStore(ttl time.Duration) *MemoryIdempotencyStore {
+	return &MemoryIdempotencyStore{
 		ttl:     ttl,
-		records: make(map[string]idempotencyRecord),
+		records: make(map[string]IdempotencyRecord),
 	}
+}
+
+func NewIdempotencyStore(ttl time.Duration) IdempotencyStore {
+	return NewMemoryIdempotencyStore(ttl)
+}
+
+func (s *MemoryIdempotencyStore) Enabled() bool {
+	return s != nil && s.ttl > 0
+}
+
+func (s *MemoryIdempotencyStore) TTL() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.ttl
+}
+
+func (s *MemoryIdempotencyStore) Reserve(ctx context.Context, scope, key, requestSum string, now time.Time) (IdempotencyDecision, IdempotencyRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sweepExpiredIdempotencyLocked(now, s.records)
+
+	record, ok := s.records[idempotencyStorageKey(scope, key)]
+	if !ok {
+		s.records[idempotencyStorageKey(scope, key)] = IdempotencyRecord{
+			Scope:      scope,
+			RequestSum: requestSum,
+			ExpiresAt:  now.Add(s.ttl),
+			State:      idempotencyStatePending,
+		}
+		return IdempotencyDecisionAccept, IdempotencyRecord{}, nil
+	}
+	if record.RequestSum != requestSum {
+		return IdempotencyDecisionConflict, IdempotencyRecord{}, nil
+	}
+	if record.State == idempotencyStateCompleted {
+		return IdempotencyDecisionReplay, record, nil
+	}
+	return IdempotencyDecisionInProgress, IdempotencyRecord{}, nil
+}
+
+func (s *MemoryIdempotencyStore) Complete(ctx context.Context, scope, key, requestSum string, record IdempotencyRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, ok := s.records[idempotencyStorageKey(scope, key)]
+	if !ok || current.RequestSum != requestSum {
+		return nil
+	}
+
+	record.RequestSum = requestSum
+	record.State = idempotencyStateCompleted
+	s.records[idempotencyStorageKey(scope, key)] = record
+	return nil
+}
+
+func (s *MemoryIdempotencyStore) Release(ctx context.Context, scope, key, requestSum string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, ok := s.records[idempotencyStorageKey(scope, key)]
+	if ok && current.RequestSum == requestSum && current.State == idempotencyStatePending {
+		delete(s.records, idempotencyStorageKey(scope, key))
+	}
+	return nil
+}
+
+func sweepExpiredIdempotencyLocked(now time.Time, records map[string]IdempotencyRecord) {
+	for key, record := range records {
+		if now.After(record.ExpiresAt) {
+			delete(records, key)
+		}
+	}
+}
+
+type RateLimiter interface {
+	Enabled() bool
+	Allow(ctx context.Context, clientID string, now time.Time) (bool, error)
 }
 
 type rateLimitBucket struct {
@@ -58,19 +161,49 @@ type rateLimitBucket struct {
 	WindowEnd time.Time
 }
 
-type RateLimiter struct {
+type MemoryRateLimiter struct {
 	mu      sync.Mutex
 	limit   int
 	window  time.Duration
 	clients map[string]rateLimitBucket
 }
 
-func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
-	return &RateLimiter{
+func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
+	return &MemoryRateLimiter{
 		limit:   limit,
 		window:  window,
 		clients: make(map[string]rateLimitBucket),
 	}
+}
+
+func NewRateLimiter(limit int, window time.Duration) RateLimiter {
+	return NewMemoryRateLimiter(limit, window)
+}
+
+func (l *MemoryRateLimiter) Enabled() bool {
+	return l != nil && l.limit > 0 && l.window > 0
+}
+
+func (l *MemoryRateLimiter) Allow(ctx context.Context, clientID string, now time.Time) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	bucket, ok := l.clients[clientID]
+	if !ok || now.After(bucket.WindowEnd) {
+		l.clients[clientID] = rateLimitBucket{
+			Count:     1,
+			WindowEnd: now.Add(l.window),
+		}
+		return true, nil
+	}
+
+	if bucket.Count >= l.limit {
+		return false, nil
+	}
+
+	bucket.Count++
+	l.clients[clientID] = bucket
+	return true, nil
 }
 
 func RequestContext() gin.HandlerFunc {
@@ -80,7 +213,15 @@ func RequestContext() gin.HandlerFunc {
 			requestID = newID()
 		}
 
-		traceID := traceIDFromHeaders(c)
+		traceID := ""
+		spanID := ""
+		if spanContext := trace.SpanFromContext(c.Request.Context()).SpanContext(); spanContext.IsValid() {
+			traceID = spanContext.TraceID().String()
+			spanID = spanContext.SpanID().String()
+		}
+		if traceID == "" {
+			traceID = traceIDFromHeaders(c)
+		}
 		if traceID == "" {
 			traceID = requestID
 		}
@@ -88,6 +229,7 @@ func RequestContext() gin.HandlerFunc {
 		meta := requestmeta.Meta{
 			RequestID:      requestID,
 			TraceID:        traceID,
+			SpanID:         spanID,
 			IdempotencyKey: c.GetHeader("Idempotency-Key"),
 			SourceIP:       c.ClientIP(),
 			UserAgent:      c.Request.UserAgent(),
@@ -136,6 +278,7 @@ func StructuredLogger(metrics *observability.Metrics) gin.HandlerFunc {
 			"http_request",
 			slog.String("request_id", meta.RequestID),
 			slog.String("trace_id", meta.TraceID),
+			slog.String("span_id", meta.SpanID),
 			slog.String("user_id", meta.UserID),
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
@@ -148,14 +291,19 @@ func StructuredLogger(metrics *observability.Metrics) gin.HandlerFunc {
 	}
 }
 
-func RateLimit(limiter *RateLimiter) gin.HandlerFunc {
+func RateLimit(limiter RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if limiter == nil || limiter.limit <= 0 || limiter.window <= 0 {
+		if limiter == nil || !limiter.Enabled() {
 			c.Next()
 			return
 		}
 
-		if !limiter.Allow(c.ClientIP(), time.Now().UTC()) {
+		allowed, err := limiter.Allow(c.Request.Context(), c.ClientIP(), time.Now().UTC())
+		if err != nil {
+			httpapi.AbortError(c, http.StatusInternalServerError, "rate_limit_failed", "failed to evaluate rate limit")
+			return
+		}
+		if !allowed {
 			httpapi.AbortError(c, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
 		}
@@ -164,31 +312,9 @@ func RateLimit(limiter *RateLimiter) gin.HandlerFunc {
 	}
 }
 
-func (l *RateLimiter) Allow(clientID string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	bucket, ok := l.clients[clientID]
-	if !ok || now.After(bucket.WindowEnd) {
-		l.clients[clientID] = rateLimitBucket{
-			Count:     1,
-			WindowEnd: now.Add(l.window),
-		}
-		return true
-	}
-
-	if bucket.Count >= l.limit {
-		return false
-	}
-
-	bucket.Count++
-	l.clients[clientID] = bucket
-	return true
-}
-
-func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
+func Idempotency(store IdempotencyStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if store == nil || store.ttl <= 0 {
+		if store == nil || !store.Enabled() {
 			c.Next()
 			return
 		}
@@ -214,17 +340,26 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 		sum := sha256.Sum256(payload)
 		requestSum := hex.EncodeToString(sum[:])
 
-		if replayed, ok := store.Lookup(scope, key, requestSum); ok {
-			for headerKey, headerValue := range replayed.Headers {
+		decision, record, err := store.Reserve(c.Request.Context(), scope, key, requestSum, time.Now().UTC())
+		if err != nil {
+			httpapi.AbortError(c, http.StatusInternalServerError, "idempotency_failed", "failed to reserve idempotency key")
+			return
+		}
+
+		switch decision {
+		case IdempotencyDecisionReplay:
+			for headerKey, headerValue := range record.Headers {
 				c.Header(headerKey, headerValue)
 			}
 			c.Header("Idempotent-Replayed", "true")
-			c.Data(replayed.Status, headerContentType(replayed.Headers), replayed.Body)
+			c.Data(record.Status, headerContentType(record.Headers), record.Body)
 			c.Abort()
 			return
-		}
-		if store.Conflicts(scope, key, requestSum) {
+		case IdempotencyDecisionConflict:
 			httpapi.AbortError(c, http.StatusConflict, "idempotency_conflict", "idempotency key was already used with a different payload")
+			return
+		case IdempotencyDecisionInProgress:
+			httpapi.AbortError(c, http.StatusConflict, "idempotency_in_progress", "idempotency key is already being processed")
 			return
 		}
 
@@ -233,13 +368,14 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 		c.Next()
 
 		if c.Writer.Status() >= 500 {
+			_ = store.Release(c.Request.Context(), scope, key, requestSum)
 			return
 		}
 
 		headers := map[string]string{
 			"Content-Type": c.Writer.Header().Get("Content-Type"),
 		}
-		store.Save(scope, key, requestSum, idempotencyRecord{
+		_ = store.Complete(c.Request.Context(), scope, key, requestSum, IdempotencyRecord{
 			Scope:      scope,
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
@@ -247,51 +383,8 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 			Status:     c.Writer.Status(),
 			Body:       append([]byte(nil), capture.body.Bytes()...),
 			Headers:    headers,
-			ExpiresAt:  time.Now().UTC().Add(store.ttl),
+			ExpiresAt:  time.Now().UTC().Add(store.TTL()),
 		})
-	}
-}
-
-func (s *IdempotencyStore) Lookup(scope, key, requestSum string) (idempotencyRecord, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sweepExpiredLocked(time.Now().UTC(), s.records)
-
-	record, ok := s.records[scope+"|"+key]
-	if !ok {
-		return idempotencyRecord{}, false
-	}
-	if record.RequestSum != requestSum {
-		return idempotencyRecord{}, false
-	}
-	return record, true
-}
-
-func (s *IdempotencyStore) Conflicts(scope, key, requestSum string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sweepExpiredLocked(time.Now().UTC(), s.records)
-
-	record, ok := s.records[scope+"|"+key]
-	if !ok {
-		return false
-	}
-	return record.RequestSum != requestSum
-}
-
-func (s *IdempotencyStore) Save(scope, key, requestSum string, record idempotencyRecord) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sweepExpiredLocked(time.Now().UTC(), s.records)
-	record.RequestSum = requestSum
-	s.records[scope+"|"+key] = record
-}
-
-func sweepExpiredLocked(now time.Time, records map[string]idempotencyRecord) {
-	for key, record := range records {
-		if now.After(record.ExpiresAt) {
-			delete(records, key)
-		}
 	}
 }
 
@@ -317,6 +410,10 @@ func traceIDFromHeaders(c *gin.Context) string {
 	}
 
 	return ""
+}
+
+func idempotencyStorageKey(scope, key string) string {
+	return scope + "|" + key
 }
 
 func newID() string {

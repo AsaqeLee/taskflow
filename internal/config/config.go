@@ -18,6 +18,8 @@ const (
 	defaultMongoDB          = "taskflow"
 	defaultRepositoryDriver = RepositoryDriverMemory
 	defaultAccessTokenTTL   = 2 * time.Hour
+	defaultRefreshTokenTTL  = 7 * 24 * time.Hour
+	defaultPasswordResetTTL = time.Hour
 	defaultRequestTimeout   = 15 * time.Second
 	defaultShutdownTimeout  = 10 * time.Second
 	defaultServerReadTimout = 10 * time.Second
@@ -38,6 +40,8 @@ type Config struct {
 	DevMode            bool
 	LogLevel           string        `validate:"required,oneof=debug info warn error"`
 	AccessTokenTTL     time.Duration `validate:"required,gt=0"`
+	RefreshTokenTTL    time.Duration `validate:"required,gt=0"`
+	PasswordResetTTL   time.Duration `validate:"required,gt=0"`
 	RequestTimeout     time.Duration `validate:"required,gt=0"`
 	ShutdownTimeout    time.Duration `validate:"required,gt=0"`
 	ServerReadTimeout  time.Duration `validate:"required,gt=0"`
@@ -45,7 +49,11 @@ type Config struct {
 	RateLimitRequests  int           `validate:"required,gte=0"`
 	RateLimitWindow    time.Duration `validate:"required,gt=0"`
 	IdempotencyTTL     time.Duration `validate:"required,gt=0"`
-	AppVersion         string        `validate:"required"`
+	TracingEnabled     bool
+	TracingEndpoint    string
+	TracingInsecure    bool
+	TracingServiceName string `validate:"required"`
+	AppVersion         string `validate:"required"`
 }
 
 func Load() Config {
@@ -69,6 +77,8 @@ func Load() Config {
 	}
 
 	accessTokenTTL := mustParseDuration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL)
+	refreshTokenTTL := mustParseDuration("REFRESH_TOKEN_TTL", defaultRefreshTokenTTL)
+	passwordResetTTL := mustParseDuration("PASSWORD_RESET_TTL", defaultPasswordResetTTL)
 	requestTimeout := mustParseDuration("REQUEST_TIMEOUT", defaultRequestTimeout)
 	shutdownTimeout := mustParseDuration("SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
 	serverReadTimeout := mustParseDuration("SERVER_READ_TIMEOUT", defaultServerReadTimout)
@@ -77,6 +87,10 @@ func Load() Config {
 	idempotencyTTL := mustParseDuration("IDEMPOTENCY_TTL", defaultIdempotencyTTL)
 	rateLimitRequests := mustParseInt("RATE_LIMIT_REQUESTS", 120)
 	logLevel := normalizeLogLevel(getenv("LOG_LEVEL", "info"))
+	tracingEnabled, _ := strconv.ParseBool(getenv("TRACING_ENABLED", "false"))
+	tracingInsecure, _ := strconv.ParseBool(getenv("TRACING_INSECURE", "true"))
+	tracingEndpoint := strings.TrimSpace(getenv("TRACING_ENDPOINT", ""))
+	tracingServiceName := strings.TrimSpace(getenv("TRACING_SERVICE_NAME", "taskflow"))
 	appVersion := getenv("APP_VERSION", "dev")
 
 	cfg := Config{
@@ -88,6 +102,8 @@ func Load() Config {
 		DevMode:            devMode,
 		LogLevel:           logLevel,
 		AccessTokenTTL:     accessTokenTTL,
+		RefreshTokenTTL:    refreshTokenTTL,
+		PasswordResetTTL:   passwordResetTTL,
 		RequestTimeout:     requestTimeout,
 		ShutdownTimeout:    shutdownTimeout,
 		ServerReadTimeout:  serverReadTimeout,
@@ -95,6 +111,10 @@ func Load() Config {
 		RateLimitRequests:  rateLimitRequests,
 		RateLimitWindow:    rateLimitWindow,
 		IdempotencyTTL:     idempotencyTTL,
+		TracingEnabled:     tracingEnabled,
+		TracingEndpoint:    tracingEndpoint,
+		TracingInsecure:    tracingInsecure,
+		TracingServiceName: tracingServiceName,
 		AppVersion:         appVersion,
 	}
 

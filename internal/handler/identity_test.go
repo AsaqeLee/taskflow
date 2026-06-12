@@ -17,15 +17,20 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	userRepo := repository.NewMemoryUserRepository()
-	h := NewIdentityHandler(userRepo, "test_secret", time.Hour, true)
+	identityRepo := repository.NewMemoryIdentityRepository()
+	h := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
 
 	r := gin.New()
 	r.POST("/users", h.Register)
 	r.POST("/auth/login", h.Login)
+	r.POST("/auth/refresh", h.Refresh)
+	r.POST("/auth/password-reset/request", h.RequestPasswordReset)
+	r.POST("/auth/password-reset/confirm", h.ConfirmPasswordReset)
 
 	authenticated := r.Group("/")
 	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
 	authenticated.GET("/me", h.Me)
+	authenticated.POST("/users/:id/disable", h.DisableAccount)
 
 	// 1. Register a new user u_test_003
 	body := `{"id": "u_test_003", "name": "Dynamic User", "role": "human", "password": "strong-pass-123"}`
@@ -44,7 +49,8 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 			Name string `json:"name"`
 			Role string `json:"role"`
 		} `json:"user"`
-		AccessToken string `json:"access_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &registerResp); err != nil {
 		t.Fatalf("failed to parse registration response: %v", err)
@@ -56,6 +62,9 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 	}
 	if registerResp.AccessToken == "" {
 		t.Fatalf("expected generated access token to be populated")
+	}
+	if registerResp.RefreshToken == "" {
+		t.Fatalf("expected generated refresh token to be populated")
 	}
 
 	// 2. Fetch /me profile with the generated token
@@ -100,5 +109,98 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 
 	if wMeMissing.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d", wMeMissing.Code)
+	}
+}
+
+func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	h := NewIdentityHandler(userRepo, identityRepo, "test_secret", time.Hour, 24*time.Hour, time.Hour, true)
+
+	r := gin.New()
+	r.POST("/users", h.Register)
+	r.POST("/auth/login", h.Login)
+	r.POST("/auth/refresh", h.Refresh)
+	r.POST("/auth/password-reset/request", h.RequestPasswordReset)
+	r.POST("/auth/password-reset/confirm", h.ConfirmPasswordReset)
+
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	authenticated.POST("/users/:id/disable", h.DisableAccount)
+
+	registerReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_reset_001","name":"Reset User","role":"human","password":"strong-pass-123"}`))
+	registerReq.Header.Set("Content-Type", "application/json")
+	registerResp := httptest.NewRecorder()
+	r.ServeHTTP(registerResp, registerReq)
+	if registerResp.Code != http.StatusCreated {
+		t.Fatalf("expected register status 201, got %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+
+	var registered struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(registerResp.Body.Bytes(), &registered); err != nil {
+		t.Fatalf("parse register response: %v", err)
+	}
+
+	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refresh_token":"`+registered.RefreshToken+`"}`))
+	refreshReq.Header.Set("Content-Type", "application/json")
+	refreshResp := httptest.NewRecorder()
+	r.ServeHTTP(refreshResp, refreshReq)
+	if refreshResp.Code != http.StatusOK {
+		t.Fatalf("expected refresh status 200, got %d body=%s", refreshResp.Code, refreshResp.Body.String())
+	}
+
+	resetReq := httptest.NewRequest(http.MethodPost, "/auth/password-reset/request", strings.NewReader(`{"id":"u_reset_001"}`))
+	resetReq.Header.Set("Content-Type", "application/json")
+	resetResp := httptest.NewRecorder()
+	r.ServeHTTP(resetResp, resetReq)
+	if resetResp.Code != http.StatusAccepted {
+		t.Fatalf("expected reset request status 202, got %d body=%s", resetResp.Code, resetResp.Body.String())
+	}
+
+	var resetRequested struct {
+		ResetToken string `json:"reset_token"`
+	}
+	if err := json.Unmarshal(resetResp.Body.Bytes(), &resetRequested); err != nil {
+		t.Fatalf("parse password reset request response: %v", err)
+	}
+	if resetRequested.ResetToken == "" {
+		t.Fatalf("expected dev-mode reset token in response")
+	}
+
+	confirmReq := httptest.NewRequest(http.MethodPost, "/auth/password-reset/confirm", strings.NewReader(`{"id":"u_reset_001","token":"`+resetRequested.ResetToken+`","new_password":"new-pass-1234"}`))
+	confirmReq.Header.Set("Content-Type", "application/json")
+	confirmResp := httptest.NewRecorder()
+	r.ServeHTTP(confirmResp, confirmReq)
+	if confirmResp.Code != http.StatusOK {
+		t.Fatalf("expected password reset confirm status 200, got %d body=%s", confirmResp.Code, confirmResp.Body.String())
+	}
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"id":"u_reset_001","password":"new-pass-1234"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp := httptest.NewRecorder()
+	r.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected login with reset password to succeed, got %d body=%s", loginResp.Code, loginResp.Body.String())
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPost, "/users/u_reset_001/disable", nil)
+	disableReq.Header.Set("Authorization", "Bearer "+registered.AccessToken)
+	disableResp := httptest.NewRecorder()
+	r.ServeHTTP(disableResp, disableReq)
+	if disableResp.Code != http.StatusOK {
+		t.Fatalf("expected disable status 200, got %d body=%s", disableResp.Code, disableResp.Body.String())
+	}
+
+	loginAfterDisableReq := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"id":"u_reset_001","password":"new-pass-1234"}`))
+	loginAfterDisableReq.Header.Set("Content-Type", "application/json")
+	loginAfterDisableResp := httptest.NewRecorder()
+	r.ServeHTTP(loginAfterDisableResp, loginAfterDisableReq)
+	if loginAfterDisableResp.Code != http.StatusForbidden {
+		t.Fatalf("expected disabled login status 403, got %d body=%s", loginAfterDisableResp.Code, loginAfterDisableResp.Body.String())
 	}
 }

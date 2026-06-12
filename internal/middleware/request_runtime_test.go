@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -112,5 +113,26 @@ func TestRateLimitMiddlewareRejectsExcessRequests(t *testing.T) {
 	r.ServeHTTP(secondResp, secondReq)
 	if secondResp.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second request status 429, got %d body=%s", secondResp.Code, secondResp.Body.String())
+	}
+}
+
+func TestMemoryIdempotencyStoreMarksPendingRequestsInProgress(t *testing.T) {
+	store := NewMemoryIdempotencyStore(time.Minute)
+	now := time.Now().UTC()
+
+	firstDecision, _, err := store.Reserve(context.Background(), "POST|/tasks|127.0.0.1", "same-key", "payload-sum", now)
+	if err != nil {
+		t.Fatalf("first reserve returned error: %v", err)
+	}
+	if firstDecision != IdempotencyDecisionAccept {
+		t.Fatalf("expected first decision to accept, got %v", firstDecision)
+	}
+
+	secondDecision, _, err := store.Reserve(context.Background(), "POST|/tasks|127.0.0.1", "same-key", "payload-sum", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("second reserve returned error: %v", err)
+	}
+	if secondDecision != IdempotencyDecisionInProgress {
+		t.Fatalf("expected second decision to report in progress, got %v", secondDecision)
 	}
 }

@@ -22,7 +22,7 @@ English | [简体中文](./README_ZH.md)
 >This system treats task lifecycles as a formal state machine. Every action (assign, start, submit, approve) is validated against current state and actor permissions to ensure zero illegal transitions.
 
 >[!NOTE]
->Current runtime baseline includes password-based registration and `POST /auth/login`, JWT-only production auth, request/trace IDs, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, Mongo index bootstrap, soft delete with audit retention, rate limiting, and idempotency-key replay.
+>Current runtime baseline includes password-based registration, `POST /auth/login`, `POST /auth/refresh`, password reset, account disable, JWT-only production auth, request/trace IDs, optional OTLP tracing, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, versioned Mongo migrations, soft delete with audit retention, and Mongo-backed shared rate limiting / idempotency when running with the Mongo driver.
 
 ---
 
@@ -75,7 +75,7 @@ TaskFlow supports pluggable persistence through the Repository Pattern:
 <summary><b>Enterprise Installation & Usage</b></summary>
 
 ### Prerequisites
-- Go 1.21 or higher
+- Go 1.26.4 or higher
 - MongoDB (optional, for production driver)
 
 ### Quick Start
@@ -99,6 +99,11 @@ curl -X POST http://localhost:8080/users \
 curl -X POST http://localhost:8080/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"id":"u_demo","password":"strong-pass-123"}'
+
+# Rotate a refresh token
+curl -X POST http://localhost:8080/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refresh_token":"<refresh-token>"}'
 ```
 </details>
 
@@ -107,7 +112,7 @@ curl -X POST http://localhost:8080/auth/login \
 ## Strategic Boundaries
 
 - **Audit Traceability:** Every state change triggers an `AuditLog` for professional accountability.
-- **Minimalist Identity:** Focused on lifecycle integrity; full OAuth is deferred to identity providers.
+- **Built-In Account Baseline:** Password login, refresh tokens, password reset, and disable flows are built in; SSO / OAuth remains an integration-layer concern.
 - **Clean Code:** Adheres to high-integrity Go standards with minimal third-party dependency bloat.
 
 ---

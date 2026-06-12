@@ -22,7 +22,7 @@
 >本系统将任务生命周期视为形式化的状态机。每一个动作（分配、启动、提交、审批）都会根据当前状态和操作者权限进行验证，以确保零非法状态转移。
 
 >[!NOTE]
->当前运行时基线已包含：基于密码的注册与 `POST /auth/login`、生产环境 JWT 鉴权、请求/链路 ID、结构化 JSON 日志、`/health` + `/livez` + `/readyz` + `/metrics`、Mongo 索引自举、软删除与审计保留、限流与幂等键回放。
+>当前运行时基线已包含：基于密码的注册、`POST /auth/login`、`POST /auth/refresh`、密码重置、账号禁用、生产环境 JWT 鉴权、请求/链路 ID、可选 OTLP tracing、结构化 JSON 日志、`/health` + `/livez` + `/readyz` + `/metrics`、Mongo 版本化迁移、软删除与审计保留，以及在 Mongo 驱动下可跨实例共享的限流与幂等键存储。
 
 ---
 
@@ -75,7 +75,7 @@ TaskFlow 通过仓库模式支持可插拔的持久化层：
 <summary><b>企业级安装与使用</b></summary>
 
 ### 前置要求
-- Go 1.21 或更高版本
+- Go 1.26.4 或更高版本
 - MongoDB (可选，用于生产驱动)
 
 ### 快速开始
@@ -99,6 +99,11 @@ curl -X POST http://localhost:8080/users \
 curl -X POST http://localhost:8080/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"id":"u_demo","password":"strong-pass-123"}'
+
+# 轮转 refresh token
+curl -X POST http://localhost:8080/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refresh_token":"<refresh-token>"}'
 ```
 </details>
 
@@ -107,7 +112,7 @@ curl -X POST http://localhost:8080/auth/login \
 ## 战略边界
 
 - **审计追踪:** 每一个状态变更都会触发 `AuditLog`，确保专业级的合规与追责。
-- **轻量身份层:** 专注于生命周期完整性；完整的 OAuth/JWT 逻辑交由身份提供者处理。
+- **内建账户基线:** 已内置密码登录、refresh token、密码重置与账号禁用；SSO / OAuth 仍属于后续集成层能力。
 - **高集成性:** 遵循高完整性的 Go 语言标准，最小化第三方依赖冗余。
 
 ---

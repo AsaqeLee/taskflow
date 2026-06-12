@@ -243,3 +243,43 @@ func TestUserAuthMiddleware_JWT(t *testing.T) {
 		})
 	}
 }
+
+func TestUserAuthMiddleware_RejectsDisabledAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	created, err := userRepo.Create(context.Background(), model.User{
+		ID:    "u_disabled_001",
+		Name:  "Disabled User",
+		Role:  "human",
+		Token: "disabled_legacy_token",
+	})
+	if err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	if _, err := userRepo.Disable(context.Background(), created.ID, "u_admin", time.Now().UTC()); err != nil {
+		t.Fatalf("failed to disable user: %v", err)
+	}
+
+	secret := "my_jwt_test_secret"
+	accessToken, err := auth.GenerateToken(created.ID, created.Role, secret, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(UserAuth(userRepo, secret, false))
+	r.GET("/test-auth", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test-auth", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected disabled account to be rejected with 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
