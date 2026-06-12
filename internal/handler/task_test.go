@@ -837,12 +837,12 @@ func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_cancel_1",
-		Title:       "Cancel Task",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_cancel_1",
+		Title:     "Cancel Task",
+		Status:    service.TaskStatusOpen,
+		CreatorID: "u_test_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -885,12 +885,12 @@ func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_cancel_2",
-		Title:       "Cancel Task Error",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_owner_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_cancel_2",
+		Title:     "Cancel Task Error",
+		Status:    service.TaskStatusOpen,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -919,12 +919,12 @@ func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_react_1",
-		Title:       "Reactivate Task",
-		Status:      service.TaskStatusCancelled,
-		CreatorID:   "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_react_1",
+		Title:     "Reactivate Task",
+		Status:    service.TaskStatusCancelled,
+		CreatorID: "u_test_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -964,12 +964,12 @@ func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_del_1",
-		Title:       "Delete Task",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_del_1",
+		Title:     "Delete Task",
+		Status:    service.TaskStatusOpen,
+		CreatorID: "u_test_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -1003,12 +1003,12 @@ func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_del_2",
-		Title:       "Delete Task Forbidden",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_owner_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_del_2",
+		Title:     "Delete Task Forbidden",
+		Status:    service.TaskStatusOpen,
+		CreatorID: "u_owner_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
@@ -1037,12 +1037,12 @@ func TestTaskHandler_ListAuditLogsReturnsLogs(t *testing.T) {
 	now := time.Now().UTC()
 
 	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_audit_1",
-		Title:       "Audit Log API",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        "task_audit_1",
+		Title:     "Audit Log API",
+		Status:    service.TaskStatusOpen,
+		CreatorID: "u_test_001",
+		CreatedAt: now,
+		UpdatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
