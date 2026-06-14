@@ -1,6 +1,7 @@
 services:
   mongo:
     image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     restart: unless-stopped
     ports:
       - "27018:27017"
@@ -9,10 +10,32 @@ services:
     volumes:
       - taskflow_mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' mongodb://127.0.0.1:27017/admin || exit 1"]
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --port 27017 --eval 'db.adminCommand({ ping: 1 }).ok' admin || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
+
+  mongo-init:
+    image: mongo:7
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mongosh --quiet --host mongo --port 27017 --eval '
+          try {
+            if (rs.status().ok === 1) {
+              quit(0)
+            }
+          } catch (e) {}
+          rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]})
+        ' admin
+        until mongosh --quiet --host mongo --port 27017 --eval 'db.hello().isWritablePrimary ? 1 : 0' admin | grep 1 >/dev/null; do
+          sleep 2
+        done
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.130.1
@@ -32,13 +55,13 @@ services:
     restart: "no"
     entrypoint: ["/usr/local/bin/taskflow-migrate"]
     depends_on:
-      mongo:
-        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
     environment:
       PORT: "8080"
       DEV_MODE: "false"
       TASK_REPOSITORY_DRIVER: mongo
-      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       MONGODB_DATABASE: taskflow
       JWT_SECRET: compose-local-secret
       APP_VERSION: compose-local
@@ -69,8 +92,8 @@ services:
         APP_VERSION: compose-local
     restart: unless-stopped
     depends_on:
-      mongo:
-        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
       migrate:
@@ -79,7 +102,7 @@ services:
       PORT: "8080"
       DEV_MODE: "false"
       TASK_REPOSITORY_DRIVER: mongo
-      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       MONGODB_DATABASE: taskflow
       JWT_SECRET: compose-local-secret
       APP_VERSION: compose-local

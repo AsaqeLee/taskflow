@@ -14,6 +14,8 @@ This repository now supports a minimal production deployment baseline:
 - versioned Mongo migrations via startup or `cmd/migrate`
 - soft delete with audit retention
 
+Task write flows use Mongo transactions. Production Mongo must therefore be a replica set member or a `mongos` router, not a standalone server.
+
 ## Required Environment
 
 Set these at minimum:
@@ -22,7 +24,7 @@ Set these at minimum:
 PORT=8080
 DEV_MODE=false
 TASK_REPOSITORY_DRIVER=mongo
-MONGODB_URI=mongodb://mongo:27017
+MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
 MONGODB_DATABASE=taskflow
 JWT_SECRET=<strong-random-secret>
 APP_VERSION=<release-tag>
@@ -64,7 +66,7 @@ Before first traffic, apply versioned migrations:
 docker run --rm \
   -e DEV_MODE=false \
   -e TASK_REPOSITORY_DRIVER=mongo \
-  -e MONGODB_URI=mongodb://host.docker.internal:27017 \
+  -e MONGODB_URI=mongodb://host.docker.internal:27017/?replicaSet=rs0 \
   -e MONGODB_DATABASE=taskflow \
   -e JWT_SECRET=replace-me \
   taskflow:latest /usr/local/bin/taskflow-migrate
@@ -78,7 +80,7 @@ The server also applies pending migrations at startup. Running `taskflow-migrate
 docker run --rm -p 8080:8080 \
   -e DEV_MODE=false \
   -e TASK_REPOSITORY_DRIVER=mongo \
-  -e MONGODB_URI=mongodb://host.docker.internal:27017 \
+  -e MONGODB_URI=mongodb://host.docker.internal:27017/?replicaSet=rs0 \
   -e MONGODB_DATABASE=taskflow \
   -e JWT_SECRET=replace-me \
   -e APP_VERSION=local \

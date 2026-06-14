@@ -10,16 +10,6 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      mongo:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' mongodb://127.0.0.1:27017/admin || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +18,47 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Start Mongo replica set
+        run: |
+          docker run -d --name taskflow-ci-mongo -p 27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+
+          ready=false
+          for attempt in {1..30}; do
+            if docker exec taskflow-ci-mongo mongosh --quiet --host 127.0.0.1 --port 27017 --eval 'db.adminCommand({ ping: 1 }).ok' admin | grep 1 >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "${ready}" != "true" ]]; then
+            echo "Mongo did not become reachable in time" >&2
+            docker logs taskflow-ci-mongo >&2 || true
+            exit 1
+          fi
+
+          docker exec taskflow-ci-mongo mongosh --quiet --host 127.0.0.1 --port 27017 --eval '
+            try {
+              if (rs.status().ok === 1) {
+                quit(0)
+              }
+            } catch (e) {}
+            rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})
+          ' admin
+
+          primary_ready=false
+          for attempt in {1..30}; do
+            if docker exec taskflow-ci-mongo mongosh --quiet --host 127.0.0.1 --port 27017 --eval 'db.hello().isWritablePrimary ? 1 : 0' admin | grep 1 >/dev/null; then
+              primary_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "${primary_ready}" != "true" ]]; then
+            echo "Mongo replica set did not elect a primary in time" >&2
+            docker logs taskflow-ci-mongo >&2 || true
+            exit 1
+          fi
 
       - name: Verify formatting
         run: test -z "$(gofmt -l .)"
@@ -48,7 +79,7 @@ jobs:
         env:
           DEV_MODE: "false"
           TASK_REPOSITORY_DRIVER: mongo
-          MONGODB_URI: mongodb://127.0.0.1:27017
+          MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0
           MONGODB_DATABASE: taskflow_ci_migrate
           JWT_SECRET: ci-secret
           APP_VERSION: ci
@@ -57,7 +88,7 @@ jobs:
 
       - name: Mongo integration coverage
         env:
-          TASKFLOW_MONGO_TEST_URI: mongodb://127.0.0.1:27017
+          TASKFLOW_MONGO_TEST_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0
         run: go test -count=1 -p 1 ./internal/migrations ./internal/middleware ./internal/handler ./internal/repository ./internal/service
 
       - name: Docker build

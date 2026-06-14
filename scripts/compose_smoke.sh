@@ -33,11 +33,39 @@ if [[ "${login_status}" != "200" ]]; then
   exit 1
 fi
 
+access_token="$(python3 - <<'PY'
+import json
+
+with open('/tmp/taskflow_login_response.json', 'r', encoding='utf-8') as fp:
+    print(json.load(fp)["access_token"])
+PY
+)"
+
+task_status="$(curl --silent --show-error -o /tmp/taskflow_task_response.json -w '%{http_code}' \
+  -X POST "${base_url}/tasks" \
+  -H "Authorization: Bearer ${access_token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Compose Smoke Task","description":"transactional write path"}')"
+if [[ "${task_status}" != "201" ]]; then
+  echo "[compose-smoke] task create failed with status ${task_status}" >&2
+  cat /tmp/taskflow_task_response.json >&2 || true
+  exit 1
+fi
+
+task_list_status="$(curl --silent --show-error -o /tmp/taskflow_task_list_response.json -w '%{http_code}' \
+  -X GET "${base_url}/tasks" \
+  -H "Authorization: Bearer ${access_token}")"
+if [[ "${task_list_status}" != "200" ]]; then
+  echo "[compose-smoke] task list failed with status ${task_list_status}" >&2
+  cat /tmp/taskflow_task_list_response.json >&2 || true
+  exit 1
+fi
+
 metrics_status="$(curl --silent --show-error -o /tmp/taskflow_metrics_response.txt -w '%{http_code}' "${base_url}/metrics")"
 if [[ "${metrics_status}" != "200" ]]; then
   echo "[compose-smoke] metrics fetch failed with status ${metrics_status}" >&2
   exit 1
 fi
 
-echo "[compose-smoke] stack is ready, login succeeded, metrics endpoint responded"
+echo "[compose-smoke] stack is ready, login and task write path succeeded, metrics endpoint responded"
 echo "[compose-smoke] inspect traces with: docker compose logs otel-collector --tail 50"
