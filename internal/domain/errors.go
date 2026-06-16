@@ -26,4 +26,7 @@ var (
 	ErrForbiddenReactivate            = errors.New("current user cannot reactivate task")
 	ErrInvalidTaskStatusForReactivate = errors.New("task status does not allow reactivate")
 	ErrForbiddenDelete                = errors.New("current user cannot delete task")
+	ErrInvalidTaskStatus              = errors.New("task status is invalid")
+	ErrAssigneeNotFound               = errors.New("assignee not found")
+	ErrAssigneeInactive               = errors.New("assignee account is disabled")
 )

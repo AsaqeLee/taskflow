@@ -75,9 +75,9 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	testutil.SeedAccount(t, userRepo, "u_agent_001", "Hermes Agent", "agent", "token_agent")
 
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
-	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
+	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, userRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
-	identityService := service.NewIdentityService(userRepo, identityRepo, false)
+	identityService := service.NewIdentityService(userRepo, identityRepo, false, dbClient)
 	identityHandler := NewIdentityHandler(
 		identityService,
 		"test_secret",

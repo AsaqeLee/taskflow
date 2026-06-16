@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -38,12 +39,17 @@ var (
 	ErrForbiddenReactivate            = domain.ErrForbiddenReactivate
 	ErrInvalidTaskStatusForReactivate = domain.ErrInvalidTaskStatusForReactivate
 	ErrForbiddenDelete                = domain.ErrForbiddenDelete
+	ErrInvalidTaskStatus              = domain.ErrInvalidTaskStatus
+	ErrAssigneeNotFound               = domain.ErrAssigneeNotFound
+	ErrAssigneeInactive               = domain.ErrAssigneeInactive
+	ErrTaskNotFound                   = ports.ErrTaskNotFound
 )
 
 type TaskService struct {
 	repo         ports.TaskRepository
 	recordRepo   ports.TaskRecordRepository
 	auditRepo    ports.AuditLogRepository
+	userRepo     ports.UserRepository
 	eventApplier taskEventApplier
 	dbClient     *database.Client
 }
@@ -52,6 +58,7 @@ func NewTaskService(
 	repo ports.TaskRepository,
 	recordRepo ports.TaskRecordRepository,
 	auditRepo ports.AuditLogRepository,
+	userRepo ports.UserRepository,
 	dbClient ...*database.Client,
 ) *TaskService {
 	var db *database.Client
@@ -62,6 +69,7 @@ func NewTaskService(
 		repo:         repo,
 		recordRepo:   recordRepo,
 		auditRepo:    auditRepo,
+		userRepo:     userRepo,
 		eventApplier: newTaskEventApplier(recordRepo, auditRepo),
 		dbClient:     db,
 	}
@@ -175,19 +183,40 @@ func (s *TaskService) UpdateTaskBasic(ctx context.Context, currentUser model.Use
 }
 
 func (s *TaskService) AssignTask(ctx context.Context, currentUser model.User, taskID, assigneeID string) (model.Task, error) {
-	return s.runTransition(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
-		return task.Assign(actor, assigneeID, at)
+	return s.runTransition(ctx, taskID, func(txCtx context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+		change, err := task.Assign(actor, assigneeID, at)
+		if err != nil {
+			return domaintask.Transition{}, err
+		}
+		if err := s.ensureAssignableUser(txCtx, assigneeID); err != nil {
+			return domaintask.Transition{}, err
+		}
+		return change, nil
 	}, currentUser)
 }
 
+func (s *TaskService) ensureAssignableUser(ctx context.Context, assigneeID string) error {
+	assignee, err := s.userRepo.FindByID(ctx, assigneeID)
+	if err != nil {
+		if errors.Is(err, ports.ErrUserNotFound) {
+			return domain.ErrAssigneeNotFound
+		}
+		return err
+	}
+	if !assignee.IsActive() {
+		return domain.ErrAssigneeInactive
+	}
+	return nil
+}
+
 func (s *TaskService) StartTask(ctx context.Context, currentUser model.User, taskID string) (model.Task, error) {
-	return s.runTransition(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	return s.runTransition(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Start(actor, at)
 	}, currentUser)
 }
 
 func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Submit(actor, content, at)
 	}, currentUser)
 	if err != nil {
@@ -197,7 +226,7 @@ func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, ta
 }
 
 func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Reject(actor, content, at)
 	}, currentUser)
 	if err != nil {
@@ -207,7 +236,7 @@ func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, ta
 }
 
 func (s *TaskService) ApproveTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Approve(actor, content, at)
 	}, currentUser)
 	if err != nil {
@@ -217,13 +246,13 @@ func (s *TaskService) ApproveTask(ctx context.Context, currentUser model.User, t
 }
 
 func (s *TaskService) CloseTask(ctx context.Context, currentUser model.User, taskID string) (model.Task, error) {
-	return s.runTransition(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	return s.runTransition(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Close(actor, at)
 	}, currentUser)
 }
 
 func (s *TaskService) CancelTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Cancel(actor, content, at)
 	}, currentUser)
 	if err != nil {
@@ -233,7 +262,7 @@ func (s *TaskService) CancelTask(ctx context.Context, currentUser model.User, ta
 }
 
 func (s *TaskService) ReactivateTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
-	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
+	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
 		return task.Reactivate(actor, content, at)
 	}, currentUser)
 	if err != nil {
@@ -293,7 +322,7 @@ func (s *TaskService) ListTaskAuditLogs(ctx context.Context, taskID string) ([]m
 	return model.AuditLogsFromDomain(logs), nil
 }
 
-type transitionFunc func(task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error)
+type transitionFunc func(ctx context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error)
 
 func (s *TaskService) runTransition(
 	ctx context.Context,
@@ -330,7 +359,7 @@ func (s *TaskService) runTransitionWithRecord(
 			return loadErr
 		}
 
-		change, transitionErr := transition(&task, actor, now)
+		change, transitionErr := transition(txCtx, &task, actor, now)
 		if transitionErr != nil {
 			return transitionErr
 		}

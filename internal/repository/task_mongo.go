@@ -60,7 +60,7 @@ func (r *MongoTaskRepository) GetByID(ctx context.Context, id string) (domaintas
 		return domaintask.Task{}, taskDocumentError(err)
 	}
 
-	return documentToTask(doc), nil
+	return documentToTask(doc)
 }
 
 func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (domaintask.Task, error) {
@@ -73,7 +73,7 @@ func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id st
 		return domaintask.Task{}, taskDocumentError(err)
 	}
 
-	return documentToTask(doc), nil
+	return documentToTask(doc)
 }
 
 func (r *MongoTaskRepository) List(ctx context.Context) ([]domaintask.Task, error) {
@@ -93,7 +93,11 @@ func (r *MongoTaskRepository) List(ctx context.Context) ([]domaintask.Task, erro
 
 	result := make([]domaintask.Task, 0, len(docs))
 	for _, doc := range docs {
-		result = append(result, documentToTask(doc))
+		task, err := documentToTask(doc)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, task)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -145,40 +149,23 @@ func taskToDocument(task domaintask.Task) taskDocument {
 	}
 }
 
-func documentToTask(doc taskDocument) domaintask.Task {
+func documentToTask(doc taskDocument) (domaintask.Task, error) {
+	status, err := domaintask.ParseStatus(doc.Status)
+	if err != nil {
+		return domaintask.Task{}, err
+	}
 	return domaintask.Restore(
 		doc.ID,
 		doc.Title,
 		doc.Description,
-		domaintask.ParseStatus(doc.Status),
+		status,
 		doc.CreatorID,
 		doc.AssigneeID,
 		doc.CreatedAt,
 		doc.UpdatedAt,
 		doc.DeletedAt,
 		doc.DeletedBy,
-	)
-}
-
-func (r *MongoTaskRepository) Delete(ctx context.Context, id string) error {
-	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
-	defer cancel()
-
-	now := time.Now().UTC()
-	update := bson.M{"$set": bson.M{
-		"deleted_at": now,
-		"updated_at": now,
-		"status":     domaintask.StatusDeleted.String(),
-	}}
-	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}}, update)
-	if err != nil {
-		return err
-	}
-	if result.MatchedCount == 0 {
-		return ErrTaskNotFound
-	}
-
-	return nil
+	), nil
 }
 
 func taskDocumentError(err error) error {

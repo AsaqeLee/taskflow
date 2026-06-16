@@ -129,3 +129,15 @@ func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy strin
 	r.users[id] = account
 	return account, nil
 }
+
+func (r *MemoryUserRepository) Update(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.users[account.ID()]; !exists {
+		return domainuser.Account{}, ErrUserNotFound
+	}
+
+	r.users[account.ID()] = account
+	return account, nil
+}

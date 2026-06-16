@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	"github.com/AsaqeLee/taskflow/internal/database"
 	domainidentity "github.com/AsaqeLee/taskflow/internal/domain/identity"
 	"github.com/AsaqeLee/taskflow/internal/domain/ports"
 	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
@@ -19,18 +20,31 @@ var (
 	ErrRefreshTokenReused      = errors.New("refresh token reuse detected")
 	ErrInvalidPasswordResetTok = errors.New("password reset token is invalid or expired")
 	ErrForbiddenSessionRevoke  = errors.New("current user cannot revoke this account's sessions")
+	ErrUserNotFound            = ports.ErrUserNotFound
+	ErrUserAlreadyExists       = ports.ErrUserAlreadyExists
 )
 
 type IdentityService struct {
 	users        ports.UserRepository
 	identityRepo ports.IdentityRepository
+	dbClient     *database.Client
 	devMode      bool
 }
 
-func NewIdentityService(users ports.UserRepository, identityRepo ports.IdentityRepository, devMode bool) *IdentityService {
+func NewIdentityService(
+	users ports.UserRepository,
+	identityRepo ports.IdentityRepository,
+	devMode bool,
+	dbClient ...*database.Client,
+) *IdentityService {
+	var db *database.Client
+	if len(dbClient) > 0 {
+		db = dbClient[0]
+	}
 	return &IdentityService{
 		users:        users,
 		identityRepo: identityRepo,
+		dbClient:     db,
 		devMode:      devMode,
 	}
 }
@@ -65,6 +79,23 @@ func (s *IdentityService) Register(ctx context.Context, id, name, role, password
 	return model.UserFromAccount(created), nil
 }
 
+func (s *IdentityService) Authenticate(ctx context.Context, id, password string) (model.User, error) {
+	user, err := s.FindAccount(ctx, id)
+	if err != nil {
+		if errors.Is(err, ports.ErrUserNotFound) {
+			return model.User{}, ErrInvalidCredentials
+		}
+		return model.User{}, err
+	}
+	if err := s.EnsureActive(user); err != nil {
+		return model.User{}, err
+	}
+	if err := auth.ComparePassword(user.PasswordHash, password); err != nil {
+		return model.User{}, ErrInvalidCredentials
+	}
+	return user, nil
+}
+
 func (s *IdentityService) IssueRefreshToken(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	now := time.Now().UTC()
 	rawToken, err := auth.GenerateOpaqueToken()
@@ -86,38 +117,68 @@ func (s *IdentityService) IssueRefreshToken(ctx context.Context, userID string, 
 
 func (s *IdentityService) RotateRefreshToken(ctx context.Context, rawRefreshToken string, ttl time.Duration) (model.User, string, error) {
 	now := time.Now().UTC()
-	current, err := s.identityRepo.FindRefreshToken(ctx, auth.HashOpaqueToken(rawRefreshToken))
-	if err != nil || current.IsExpired(now) {
-		return model.User{}, "", ErrInvalidRefreshToken
+	tokenHash := auth.HashOpaqueToken(rawRefreshToken)
+
+	var user model.User
+	var newRawToken string
+	var revokeUserID string
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		current, findErr := s.identityRepo.FindRefreshToken(txCtx, tokenHash)
+		if findErr != nil || current.IsExpired(now) {
+			return ErrInvalidRefreshToken
+		}
+		if current.IsRevoked() {
+			if current.ReplacedByTokenHash() != "" {
+				revokeUserID = current.UserID()
+				return ErrRefreshTokenReused
+			}
+			return ErrInvalidRefreshToken
+		}
+
+		account, accountErr := s.users.FindByID(txCtx, current.UserID())
+		if accountErr != nil {
+			return ErrInvalidRefreshToken
+		}
+		user = model.UserFromAccount(account)
+		if activeErr := s.EnsureActive(user); activeErr != nil {
+			return activeErr
+		}
+
+		generated, genErr := auth.GenerateOpaqueToken()
+		if genErr != nil {
+			return genErr
+		}
+		newHash := auth.HashOpaqueToken(generated)
+		if revokeErr := s.identityRepo.RevokeRefreshToken(txCtx, current.TokenHash(), now, newHash); revokeErr != nil {
+			return revokeErr
+		}
+		if saveErr := s.identityRepo.SaveRefreshToken(txCtx, domainidentity.IssueRefreshToken(user.ID, newHash, now, now.Add(ttl))); saveErr != nil {
+			return saveErr
+		}
+		newRawToken = generated
+		return nil
 	}
-	if current.IsRevoked() {
-		if current.ReplacedByTokenHash() != "" {
-			_ = s.identityRepo.RevokeUserRefreshTokens(ctx, current.UserID(), now)
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
+	if errors.Is(err, ErrRefreshTokenReused) {
+		if revokeUserID == "" {
 			return model.User{}, "", ErrRefreshTokenReused
 		}
-		return model.User{}, "", ErrInvalidRefreshToken
+		if revokeErr := s.identityRepo.RevokeUserRefreshTokens(ctx, revokeUserID, now); revokeErr != nil {
+			return model.User{}, "", revokeErr
+		}
+		return model.User{}, "", ErrRefreshTokenReused
 	}
-
-	user, err := s.FindAccount(ctx, current.UserID())
-	if err != nil {
-		return model.User{}, "", ErrInvalidRefreshToken
-	}
-	if err := s.EnsureActive(user); err != nil {
-		return model.User{}, "", err
-	}
-
-	newRawToken, err := auth.GenerateOpaqueToken()
 	if err != nil {
 		return model.User{}, "", err
 	}
-	newHash := auth.HashOpaqueToken(newRawToken)
-	if err := s.identityRepo.RevokeRefreshToken(ctx, current.TokenHash(), now, newHash); err != nil {
-		return model.User{}, "", err
-	}
-	if err := s.identityRepo.SaveRefreshToken(ctx, domainidentity.IssueRefreshToken(user.ID, newHash, now, now.Add(ttl))); err != nil {
-		return model.User{}, "", err
-	}
-
 	return user, newRawToken, nil
 }
 
@@ -150,63 +211,104 @@ func (s *IdentityService) RequestPasswordReset(ctx context.Context, userID strin
 
 func (s *IdentityService) ConfirmPasswordReset(ctx context.Context, userID, rawToken, newPassword string) (model.User, error) {
 	now := time.Now().UTC()
-	resetToken, err := s.identityRepo.FindPasswordResetToken(ctx, auth.HashOpaqueToken(rawToken))
-	if err != nil ||
-		resetToken.UserID() != userID ||
-		resetToken.IsConsumed() ||
-		resetToken.IsExpired(now) {
-		return model.User{}, ErrInvalidPasswordResetTok
+	tokenHash := auth.HashOpaqueToken(rawToken)
+
+	var updated model.User
+	var err error
+
+	runOps := func(txCtx context.Context) error {
+		resetToken, findErr := s.identityRepo.FindPasswordResetToken(txCtx, tokenHash)
+		if findErr != nil ||
+			resetToken.UserID() != userID ||
+			resetToken.IsConsumed() ||
+			resetToken.IsExpired(now) {
+			return ErrInvalidPasswordResetTok
+		}
+
+		passwordHash, hashErr := auth.HashPassword(newPassword)
+		if hashErr != nil {
+			return hashErr
+		}
+
+		updatedAccount, updateErr := s.users.UpdatePassword(txCtx, userID, passwordHash, now)
+		if updateErr != nil {
+			if errors.Is(updateErr, ports.ErrUserNotFound) {
+				return ErrInvalidPasswordResetTok
+			}
+			return updateErr
+		}
+		if _, consumeErr := s.identityRepo.ConsumePasswordResetToken(txCtx, tokenHash, now); consumeErr != nil {
+			if errors.Is(consumeErr, ports.ErrPasswordResetTokenNotFound) {
+				return ErrInvalidPasswordResetTok
+			}
+			return consumeErr
+		}
+
+		if revokeErr := s.identityRepo.RevokeUserRefreshTokens(txCtx, userID, now); revokeErr != nil {
+			return revokeErr
+		}
+		if deleteErr := s.identityRepo.DeletePasswordResetTokensByUser(txCtx, userID); deleteErr != nil {
+			return deleteErr
+		}
+		updated = model.UserFromAccount(updatedAccount)
+		return nil
 	}
 
-	passwordHash, err := auth.HashPassword(newPassword)
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
+
 	if err != nil {
 		return model.User{}, err
 	}
-
-	updatedAccount, err := s.users.UpdatePassword(ctx, userID, passwordHash, now)
-	if err != nil {
-		if errors.Is(err, ports.ErrUserNotFound) {
-			return model.User{}, ErrInvalidPasswordResetTok
-		}
-		return model.User{}, err
-	}
-	if _, err := s.identityRepo.ConsumePasswordResetToken(ctx, auth.HashOpaqueToken(rawToken), now); err != nil {
-		if errors.Is(err, ports.ErrPasswordResetTokenNotFound) {
-			return model.User{}, ErrInvalidPasswordResetTok
-		}
-		return model.User{}, err
-	}
-
-	_ = s.identityRepo.RevokeUserRefreshTokens(ctx, userID, now)
-	_ = s.identityRepo.DeletePasswordResetTokensByUser(ctx, userID)
-	return model.UserFromAccount(updatedAccount), nil
+	return updated, nil
 }
 
 func (s *IdentityService) DisableAccount(ctx context.Context, actor model.User, targetUserID string) (model.User, error) {
-	target, err := s.users.FindByID(ctx, targetUserID)
-	if err != nil {
-		return model.User{}, err
-	}
-
 	actorRole, err := domainuser.ParseRole(actor.Role)
 	if err != nil {
 		return model.User{}, err
 	}
-	if err := domainuser.AuthorizeDisable(domainuser.NewActor(actor.ID), actorRole, target); err != nil {
-		return model.User{}, err
-	}
-	if err := target.EnsureDisableable(); err != nil {
-		return model.User{}, err
-	}
 
 	now := time.Now().UTC()
-	disabled, err := s.users.Disable(ctx, targetUserID, actor.ID, now)
+	var disabled domainuser.Account
+
+	runOps := func(txCtx context.Context) error {
+		target, findErr := s.users.FindByID(txCtx, targetUserID)
+		if findErr != nil {
+			return findErr
+		}
+		if authErr := domainuser.AuthorizeDisable(domainuser.NewActor(actor.ID), actorRole, target); authErr != nil {
+			return authErr
+		}
+		if disableErr := target.Disable(domainuser.NewActor(actor.ID), now); disableErr != nil {
+			return disableErr
+		}
+
+		updated, disableErr := s.users.Disable(txCtx, targetUserID, actor.ID, now)
+		if disableErr != nil {
+			return disableErr
+		}
+		if revokeErr := s.identityRepo.RevokeUserRefreshTokens(txCtx, targetUserID, now); revokeErr != nil {
+			return revokeErr
+		}
+		if deleteErr := s.identityRepo.DeletePasswordResetTokensByUser(txCtx, targetUserID); deleteErr != nil {
+			return deleteErr
+		}
+		disabled = updated
+		return nil
+	}
+
+	if s.dbClient != nil {
+		err = s.dbClient.RunTransaction(ctx, runOps)
+	} else {
+		err = runOps(ctx)
+	}
 	if err != nil {
 		return model.User{}, err
 	}
-
-	_ = s.identityRepo.RevokeUserRefreshTokens(ctx, targetUserID, now)
-	_ = s.identityRepo.DeletePasswordResetTokensByUser(ctx, targetUserID)
 
 	return model.UserFromAccount(disabled), nil
 }

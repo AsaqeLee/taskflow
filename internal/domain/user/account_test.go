@@ -28,6 +28,24 @@ func TestAuthorizeDisable_RejectsNonOwnerDisablingOthers(t *testing.T) {
 	}
 }
 
+func TestDisable_MarksAccountInactive(t *testing.T) {
+	now := time.Now().UTC()
+	account := domainuser.Restore("u_disable", "Disable Me", domainuser.RoleHuman, "hash", "", true, nil, "", now, now)
+
+	if err := account.Disable(domainuser.NewActor("u_owner"), now); err != nil {
+		t.Fatalf("Disable returned error: %v", err)
+	}
+	if account.Active() {
+		t.Fatalf("expected account to be inactive")
+	}
+	if account.DisabledBy() != "u_owner" {
+		t.Fatalf("expected disabled_by u_owner, got %q", account.DisabledBy())
+	}
+	if account.DisabledAt() == nil {
+		t.Fatalf("expected disabled_at to be set")
+	}
+}
+
 func TestEnsureDisableable_RejectsAlreadyDisabledAccount(t *testing.T) {
 	now := time.Now().UTC()
 	account := domainuser.Restore("u_disabled", "Disabled", domainuser.RoleHuman, "hash", "", false, &now, "u_owner", now, now)

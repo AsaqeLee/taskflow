@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/observability"
-	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -120,19 +120,19 @@ func (h *IdentityHandler) Register(c *gin.Context) {
 
 	created, err := h.identityService.Register(c.Request.Context(), req.ID, req.Name, req.Role, req.Password)
 	if err != nil {
-		switch err {
-		case service.ErrWeakPassword:
+		switch {
+		case errors.Is(err, service.ErrWeakPassword):
 			h.recordIdentityEvent(identityFlowRegister, "weak_password")
 			httpapi.WriteError(c, http.StatusBadRequest, "weak_password", err.Error())
-		case domainuser.ErrEmptyUserID, domainuser.ErrEmptyUserName, domainuser.ErrInvalidRole:
+		case errors.Is(err, domainuser.ErrEmptyUserID),
+			errors.Is(err, domainuser.ErrEmptyUserName),
+			errors.Is(err, domainuser.ErrInvalidRole):
 			h.recordIdentityEvent(identityFlowRegister, "invalid_request")
 			httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		case errors.Is(err, service.ErrUserAlreadyExists):
+			h.recordIdentityEvent(identityFlowRegister, "user_exists")
+			httpapi.WriteError(c, http.StatusConflict, "user_exists", "user already exists")
 		default:
-			if err == repository.ErrUserAlreadyExists {
-				h.recordIdentityEvent(identityFlowRegister, "user_exists")
-				httpapi.WriteError(c, http.StatusConflict, "user_exists", "user already exists")
-				return
-			}
 			h.recordIdentityEvent(identityFlowRegister, "create_failed")
 			httpapi.WriteError(c, http.StatusInternalServerError, "user_create_failed", "failed to create user")
 		}
@@ -156,21 +156,19 @@ func (h *IdentityHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.identityService.FindAccount(c.Request.Context(), req.ID)
+	user, err := h.identityService.Authenticate(c.Request.Context(), req.ID, req.Password)
 	if err != nil {
-		h.recordIdentityEvent(identityFlowLogin, "invalid_credentials")
-		httpapi.Unauthorized(c, "invalid_credentials", auth.ErrInvalidCredentials.Error())
-		return
-	}
-	if err := h.identityService.EnsureActive(user); err != nil {
-		h.recordIdentityEvent(identityFlowLogin, "account_disabled")
-		httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
-		return
-	}
-
-	if err := auth.ComparePassword(user.PasswordHash, req.Password); err != nil {
-		h.recordIdentityEvent(identityFlowLogin, "invalid_credentials")
-		httpapi.Unauthorized(c, "invalid_credentials", err.Error())
+		switch {
+		case errors.Is(err, service.ErrInvalidCredentials):
+			h.recordIdentityEvent(identityFlowLogin, "invalid_credentials")
+			httpapi.Unauthorized(c, "invalid_credentials", err.Error())
+		case errors.Is(err, domainuser.ErrAccountDisabled):
+			h.recordIdentityEvent(identityFlowLogin, "account_disabled")
+			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
+		default:
+			h.recordIdentityEvent(identityFlowLogin, "invalid_credentials")
+			httpapi.Unauthorized(c, "invalid_credentials", service.ErrInvalidCredentials.Error())
+		}
 		return
 	}
 
@@ -189,14 +187,14 @@ func (h *IdentityHandler) Refresh(c *gin.Context) {
 
 	user, newRefreshToken, err := h.identityService.RotateRefreshToken(c.Request.Context(), req.RefreshToken, h.refreshTokenTTL)
 	if err != nil {
-		switch err {
-		case service.ErrInvalidRefreshToken:
+		switch {
+		case errors.Is(err, service.ErrInvalidRefreshToken):
 			h.recordIdentityEvent(identityFlowRefresh, "invalid_refresh_token")
 			httpapi.Unauthorized(c, "invalid_refresh_token", err.Error())
-		case service.ErrRefreshTokenReused:
+		case errors.Is(err, service.ErrRefreshTokenReused):
 			h.recordIdentityEvent(identityFlowRefresh, "reuse_detected")
 			httpapi.Unauthorized(c, "refresh_token_reused", "refresh token reuse detected; active sessions revoked")
-		case domainuser.ErrAccountDisabled:
+		case errors.Is(err, domainuser.ErrAccountDisabled):
 			h.recordIdentityEvent(identityFlowRefresh, "account_disabled")
 			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
 		default:
@@ -261,11 +259,11 @@ func (h *IdentityHandler) ConfirmPasswordReset(c *gin.Context) {
 
 	updated, err := h.identityService.ConfirmPasswordReset(c.Request.Context(), req.ID, req.Token, req.NewPassword)
 	if err != nil {
-		switch err {
-		case service.ErrInvalidPasswordResetTok:
+		switch {
+		case errors.Is(err, service.ErrInvalidPasswordResetTok):
 			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "invalid_reset_token")
 			httpapi.WriteError(c, http.StatusBadRequest, "invalid_reset_token", "password reset token is invalid or expired")
-		case service.ErrWeakPassword:
+		case errors.Is(err, service.ErrWeakPassword):
 			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "weak_password")
 			httpapi.WriteError(c, http.StatusBadRequest, "weak_password", err.Error())
 		default:
@@ -298,14 +296,14 @@ func (h *IdentityHandler) DisableAccount(c *gin.Context) {
 	}
 	disabled, err := h.identityService.DisableAccount(c.Request.Context(), currentUser, targetUserID)
 	if err != nil {
-		switch err {
-		case domainuser.ErrForbiddenDisable:
+		switch {
+		case errors.Is(err, domainuser.ErrForbiddenDisable):
 			h.recordIdentityEvent(identityFlowDisableAccount, "forbidden")
 			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can disable other accounts")
-		case domainuser.ErrAlreadyDisabled:
+		case errors.Is(err, domainuser.ErrAlreadyDisabled):
 			h.recordIdentityEvent(identityFlowDisableAccount, "already_disabled")
 			httpapi.WriteError(c, http.StatusBadRequest, "already_disabled", err.Error())
-		case repository.ErrUserNotFound:
+		case errors.Is(err, service.ErrUserNotFound):
 			h.recordIdentityEvent(identityFlowDisableAccount, "user_not_found")
 			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
 		default:
@@ -336,11 +334,11 @@ func (h *IdentityHandler) RevokeSessions(c *gin.Context) {
 		return
 	}
 	if err := h.identityService.RevokeSessions(c.Request.Context(), currentUser, targetUserID); err != nil {
-		switch err {
-		case service.ErrForbiddenSessionRevoke:
+		switch {
+		case errors.Is(err, service.ErrForbiddenSessionRevoke):
 			h.recordIdentityEvent(identityFlowRevokeSessions, "forbidden")
 			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can revoke other users' sessions")
-		case repository.ErrUserNotFound:
+		case errors.Is(err, service.ErrUserNotFound):
 			h.recordIdentityEvent(identityFlowRevokeSessions, "user_not_found")
 			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
 		default:

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/testutil"
 	"github.com/gin-gonic/gin"
@@ -234,8 +235,16 @@ func TestUserAuthMiddleware_RejectsDisabledAccount(t *testing.T) {
 	userRepo := repository.NewMemoryUserRepository()
 	created := testutil.SeedAccount(t, userRepo, "u_disabled_001", "Disabled User", "human", "disabled_legacy_token")
 
-	if _, err := userRepo.Disable(context.Background(), created.ID(), "u_admin", time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	account, err := userRepo.FindByID(context.Background(), created.ID())
+	if err != nil {
+		t.Fatalf("failed to load user: %v", err)
+	}
+	if err := account.Disable(domainuser.NewActor("u_admin"), now); err != nil {
 		t.Fatalf("failed to disable user: %v", err)
+	}
+	if _, err := userRepo.Update(context.Background(), account); err != nil {
+		t.Fatalf("failed to persist disabled user: %v", err)
 	}
 
 	secret := "my_jwt_test_secret"

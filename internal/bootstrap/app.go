@@ -63,9 +63,9 @@ func NewApp(cfg config.Config) (*App, error) {
 	loginRateLimiter := newScopedRateLimiter(cfg.LoginRateLimitRequests, cfg.LoginRateLimitWindow, db)
 	passwordResetRateLimiter := newScopedRateLimiter(cfg.PasswordResetRateLimitRequests, cfg.PasswordResetRateLimitWindow, db)
 
-	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
+	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, userRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
-	identityService := service.NewIdentityService(userRepo, identityRepo, cfg.DevMode)
+	identityService := service.NewIdentityService(userRepo, identityRepo, cfg.DevMode, db)
 	identityHandler := handler.NewIdentityHandler(
 		identityService,
 		cfg.JWTSecret,

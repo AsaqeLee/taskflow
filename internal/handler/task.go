@@ -6,7 +6,7 @@ import (
 
 	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
-	"github.com/AsaqeLee/taskflow/internal/repository"
+
 	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -315,7 +315,9 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrInvalidTaskStatusForApprove),
 		errors.Is(err, service.ErrInvalidTaskStatusForClose),
 		errors.Is(err, service.ErrInvalidTaskStatusForCancel),
-		errors.Is(err, service.ErrInvalidTaskStatusForReactivate):
+		errors.Is(err, service.ErrInvalidTaskStatusForReactivate),
+		errors.Is(err, service.ErrAssigneeNotFound),
+		errors.Is(err, service.ErrAssigneeInactive):
 		httpapi.WriteError(c, http.StatusBadRequest, "invalid_task_request", err.Error())
 	case errors.Is(err, service.ErrForbiddenAssign),
 		errors.Is(err, service.ErrForbiddenUpdate),
@@ -328,7 +330,7 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrForbiddenReactivate),
 		errors.Is(err, service.ErrForbiddenDelete):
 		httpapi.WriteError(c, http.StatusForbidden, "forbidden", err.Error())
-	case errors.Is(err, repository.ErrTaskNotFound):
+	case errors.Is(err, service.ErrTaskNotFound):
 		httpapi.WriteError(c, http.StatusNotFound, "task_not_found", err.Error())
 	default:
 		httpapi.WriteError(c, http.StatusInternalServerError, "internal_error", err.Error())

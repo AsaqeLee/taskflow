@@ -94,35 +94,6 @@ func (r *MemoryTaskRepository) Update(ctx context.Context, task domaintask.Task)
 	return task, nil
 }
 
-func (r *MemoryTaskRepository) Delete(ctx context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	task, ok := r.tasks[id]
-	if !ok {
-		return ErrTaskNotFound
-	}
-
-	if task.IsDeleted() {
-		return ErrTaskNotFound
-	}
-
-	now := timeNowUTC()
-	r.tasks[id] = domaintask.Restore(
-		task.ID(),
-		task.Title(),
-		task.Description(),
-		domaintask.StatusDeleted,
-		task.CreatorID(),
-		task.AssigneeID(),
-		task.CreatedAt(),
-		now,
-		&now,
-		"",
-	)
-	return nil
-}
-
 func timeNowUTC() time.Time {
 	return time.Now().UTC()
 }

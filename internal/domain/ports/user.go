@@ -20,4 +20,5 @@ type UserRepository interface {
 	FindByToken(ctx context.Context, token string) (domainuser.Account, error)
 	UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (domainuser.Account, error)
 	Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (domainuser.Account, error)
+	Update(ctx context.Context, account domainuser.Account) (domainuser.Account, error)
 }

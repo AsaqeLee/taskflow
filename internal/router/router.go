@@ -2,10 +2,10 @@ package router
 
 import (
 	"github.com/AsaqeLee/taskflow/internal/config"
+	"github.com/AsaqeLee/taskflow/internal/domain/ports"
 	"github.com/AsaqeLee/taskflow/internal/handler"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
-	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -14,7 +14,7 @@ func New(
 	systemHandler *handler.SystemHandler,
 	taskHandler *handler.TaskHandler,
 	identityHandler *handler.IdentityHandler,
-	userRepo repository.UserRepository,
+	userRepo ports.UserRepository,
 	cfg config.Config,
 	tracer trace.Tracer,
 	metrics *observability.Metrics,

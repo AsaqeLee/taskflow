@@ -5,11 +5,10 @@ import (
 )
 
 func UserFromAccount(account domainuser.Account) User {
-	role, _ := domainuser.ParseRole(account.Role().String())
 	return User{
 		ID:           account.ID(),
 		Name:         account.Name(),
-		Role:         role.String(),
+		Role:         account.Role().String(),
 		PasswordHash: account.PasswordHash(),
 		Token:        account.LegacyToken(),
 		Active:       account.Active(),
@@ -20,8 +19,11 @@ func UserFromAccount(account domainuser.Account) User {
 	}
 }
 
-func AccountFromUser(user User) domainuser.Account {
-	role, _ := domainuser.ParseRole(user.Role)
+func AccountFromUser(user User) (domainuser.Account, error) {
+	role, err := domainuser.ParseRole(user.Role)
+	if err != nil {
+		return domainuser.Account{}, err
+	}
 	return domainuser.Restore(
 		user.ID,
 		user.Name,
@@ -33,5 +35,5 @@ func AccountFromUser(user User) domainuser.Account {
 		user.DisabledBy,
 		user.CreatedAt,
 		user.UpdatedAt,
-	)
+	), nil
 }

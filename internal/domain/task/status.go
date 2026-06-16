@@ -1,5 +1,11 @@
 package task
 
+import (
+	"strings"
+
+	"github.com/AsaqeLee/taskflow/internal/domain"
+)
+
 // Status is the lifecycle state of a task aggregate.
 type Status string
 
@@ -18,6 +24,13 @@ func (s Status) String() string {
 	return string(s)
 }
 
-func ParseStatus(value string) Status {
-	return Status(value)
+func ParseStatus(value string) (Status, error) {
+	status := Status(strings.TrimSpace(value))
+	switch status {
+	case StatusOpen, StatusAssigned, StatusInProgress, StatusSubmitted,
+		StatusApproved, StatusCompleted, StatusCancelled, StatusDeleted:
+		return status, nil
+	default:
+		return "", domain.ErrInvalidTaskStatus
+	}
 }

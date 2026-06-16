@@ -143,6 +143,32 @@ func (r *MongoUserRepository) Disable(ctx context.Context, id, disabledBy string
 	return r.FindByID(ctx, id)
 }
 
+func (r *MongoUserRepository) Update(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
+	defer cancel()
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": account.ID()}, bson.M{
+		"$set": bson.M{
+			"name":          account.Name(),
+			"role":          account.Role().String(),
+			"password_hash": account.PasswordHash(),
+			"token":         account.LegacyToken(),
+			"active":        account.Active(),
+			"disabled_at":   account.DisabledAt(),
+			"disabled_by":   account.DisabledBy(),
+			"updated_at":    account.UpdatedAt(),
+		},
+	})
+	if err != nil {
+		return domainuser.Account{}, err
+	}
+	if result.MatchedCount == 0 {
+		return domainuser.Account{}, ErrUserNotFound
+	}
+
+	return account, nil
+}
+
 func accountToDocument(account domainuser.Account) userDocument {
 	return userDocument{
 		ID:           account.ID(),
@@ -160,8 +186,8 @@ func accountToDocument(account domainuser.Account) userDocument {
 
 func userDocumentToAccount(doc userDocument) domainuser.Account {
 	active := doc.Active
-	if !active && doc.DisabledAt == nil {
-		active = true
+	if doc.DisabledAt != nil {
+		active = false
 	}
 	role, _ := domainuser.ParseRole(doc.Role)
 

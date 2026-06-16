@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -47,7 +48,8 @@ func TestIdentityHandler_MongoRefreshReuseResetAndSessionRevocation(t *testing.T
 		db.Collection("password_reset_tokens"),
 	)
 	metrics := observability.NewMetrics()
-	identityService := service.NewIdentityService(userRepo, identityRepo, true)
+	dbClient := &database.Client{Mongo: client, DBName: db.Name()}
+	identityService := service.NewIdentityService(userRepo, identityRepo, true, dbClient)
 	handler := NewIdentityHandler(
 		identityService,
 		"test_secret",

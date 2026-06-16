@@ -4,9 +4,9 @@ import (
 	"net/http"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	"github.com/AsaqeLee/taskflow/internal/domain/ports"
 	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/model"
-	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/requestmeta"
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +28,7 @@ func FixedTestUser() gin.HandlerFunc {
 	}
 }
 
-func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool) gin.HandlerFunc {
+func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		if len(token) > 7 && token[:7] == "Bearer " {

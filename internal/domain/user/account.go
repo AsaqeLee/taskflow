@@ -106,3 +106,15 @@ func (a Account) EnsureDisableable() error {
 	}
 	return nil
 }
+
+// Disable marks the account inactive and records who disabled it.
+func (a *Account) Disable(actor Actor, at time.Time) error {
+	if err := a.EnsureDisableable(); err != nil {
+		return err
+	}
+	a.active = false
+	a.disabledAt = &at
+	a.disabledBy = actor.ID
+	a.updatedAt = at
+	return nil
+}
