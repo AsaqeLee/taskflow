@@ -22,7 +22,7 @@ English | [简体中文](./README_ZH.md)
 >This system treats task lifecycles as a formal state machine. Every action (assign, start, submit, approve) is validated against current state and actor permissions to ensure zero illegal transitions.
 
 >[!NOTE]
->Current runtime baseline includes password-based registration, `POST /auth/login`, `POST /auth/refresh`, password reset, account disable and session revoke, JWT-only production auth, request/trace IDs, optional OTLP tracing, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, versioned Mongo migrations, soft delete with audit retention, and Mongo-backed shared global/auth-scoped rate limiting plus idempotency when running with the Mongo driver.
+>Current runtime baseline includes password-based registration, `POST /auth/login`, `POST /auth/refresh`, password reset, account disable and session revoke, JWT-only production auth, request/trace IDs, optional OTLP tracing, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, versioned Mongo migrations, domain-driven soft delete with audit retention, assignee existence/active checks on assign, and Mongo-backed shared global/auth-scoped rate limiting plus idempotency when running with the Mongo driver. Task writes and identity-critical flows run inside Mongo transactions when the Mongo driver is enabled.
 
 ---
 
@@ -51,23 +51,68 @@ graph LR
 
 ```text
 taskflow/
-├── cmd/                # Entry points (HTTP Server, Migrations)
+├── cmd/
+│   ├── server/         # HTTP server entrypoint
+│   └── migrate/        # Mongo migration CLI
 ├── internal/
-│   ├── domain/         # Aggregate roots, entities, value objects, domain errors
+│   ├── domain/         # Aggregates, entities, value objects, domain errors
 │   │   ├── task/       # Task aggregate, state machine, domain events
-│   │   ├── user/       # Account aggregate, Actor, Role value object
+│   │   ├── user/       # Account aggregate, Actor, Role
+│   │   ├── identity/   # Refresh & password-reset token entities
 │   │   ├── record/     # Collaboration record entity
 │   │   ├── audit/      # Audit log entity & actions
 │   │   ├── event/      # Domain event contract
 │   │   └── ports/      # Repository interfaces (hexagonal boundaries)
-│   ├── service/        # Application layer: orchestration & event application
-│   ├── repository/     # Persistence adapters (Mongo/Memory)
-│   ├── model/          # API/persistence DTOs & domain mappers
-│   ├── handler/        # HTTP transport
-│   └── bootstrap/      # Dependency injection & app assembly
-├── docs/               # Boundary definitions and targets
-└── scripts/            # Deployment and utility scripts
+│   ├── service/        # TaskService, IdentityService, event application
+│   ├── repository/     # Mongo/Memory adapters (aliases to ports)
+│   ├── model/          # HTTP DTOs & domain mappers
+│   ├── handler/        # HTTP transport (depends on service, not repository)
+│   ├── middleware/     # Auth, rate limit, idempotency, tracing
+│   ├── router/         # Route wiring
+│   ├── bootstrap/      # Dependency injection & app assembly
+│   ├── config/
+│   ├── database/       # Mongo client & transaction runner
+│   ├── migrations/
+│   └── observability/  # Logger, metrics, tracing
+├── scripts/            # compose_smoke, security_audit, perf_smoke, rollback
+├── deploy/             # OTLP collector example
+└── reports/            # Security & performance baseline reports
 ```
+
+**Layer rules**
+
+| Layer | Responsibility | Depends on |
+| --- | --- | --- |
+| `domain/*` | Invariants, state transitions, aggregate behavior | domain packages only |
+| `domain/ports` | Persistence contracts | domain types |
+| `service` | Use-case orchestration, transactions, event persistence | `domain`, `ports`, `model` |
+| `repository` | Mongo/Memory implementations | `domain`, `ports` |
+| `handler` / `middleware` / `router` | HTTP transport & cross-cutting concerns | `service`, `ports` (auth lookup), `model` |
+
+Key application services:
+
+- `TaskService` — task lifecycle, audit/record side effects, assignee validation
+- `IdentityService` — `Authenticate`, registration, refresh rotation, password reset, disable
+</details>
+
+<details>
+<summary><b>HTTP API Surface</b></summary>
+
+Public:
+
+- `POST /users`, `POST /auth/login`, `POST /auth/refresh`
+- `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm`
+
+Authenticated:
+
+- `GET /me`, `POST /users/:id/disable`, `POST /users/:id/revoke-sessions`
+- `POST /tasks`, `GET /tasks`, `GET /tasks/:id`, `PATCH /tasks/:id`, `DELETE /tasks/:id`
+- `POST /tasks/:id/{assign,start,submit,reject,approve,close,cancel,reactivate}`
+- `GET /tasks/:id/records`, `GET /tasks/:id/audit_logs`
+
+System:
+
+- `GET /health`, `GET /livez`, `GET /readyz`, `GET /metrics`
 </details>
 
 <details>
@@ -125,9 +170,10 @@ For rollout discipline and migration expectations, see `DEPLOYMENT.md` and `MIGR
 
 ## Strategic Boundaries
 
-- **Audit Traceability:** Every state change triggers an `AuditLog` for professional accountability.
-- **Built-In Account Baseline:** Password login, refresh tokens, password reset, disable, and session-revoke flows are built in; SSO / OAuth remains an integration-layer concern.
-- **Clean Code:** Adheres to high-integrity Go standards with minimal third-party dependency bloat.
+- **Audit Traceability:** Every state change triggers an `AuditLog` for professional accountability. Soft delete flows through the task aggregate (`MarkDeleted`) and still emits audit events; there is no repository-level hard-delete shortcut.
+- **Built-In Account Baseline:** `IdentityService` owns authentication and account lifecycle. Password login, refresh-token rotation, password reset, disable, and session revoke are built in; SSO / OAuth remains an integration-layer concern.
+- **Validated Persistence:** Task status values are validated on read (`ParseStatus`). Assign requires the target user to exist and remain active.
+- **Clean Code:** Handler and router layers depend on `domain/ports`, not concrete repositories. Service layer re-exports repository errors for HTTP mapping.
 
 ---
 

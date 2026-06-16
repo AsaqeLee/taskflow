@@ -14,7 +14,14 @@ This repository now supports a minimal production deployment baseline:
 - versioned Mongo migrations via startup or `cmd/migrate`
 - soft delete with audit retention
 
-Task write flows use Mongo transactions. Production Mongo must therefore be a replica set member or a `mongos` router, not a standalone server.
+Task write flows and identity-critical flows use Mongo transactions:
+
+- task create / transition / soft delete
+- refresh-token rotation
+- password-reset confirmation
+- account disable (disable + revoke refresh tokens + clear reset tokens)
+
+Production Mongo must therefore be a replica set member or a `mongos` router, not a standalone server.
 
 ## Required Environment
 

@@ -22,7 +22,7 @@
 >本系统将任务生命周期视为形式化的状态机。每一个动作（分配、启动、提交、审批）都会根据当前状态和操作者权限进行验证，以确保零非法状态转移。
 
 >[!NOTE]
->当前运行时基线已包含：基于密码的注册、`POST /auth/login`、`POST /auth/refresh`、密码重置、账号禁用与会话吊销、生产环境 JWT 鉴权、请求/链路 ID、可选 OTLP tracing、结构化 JSON 日志、`/health` + `/livez` + `/readyz` + `/metrics`、Mongo 版本化迁移、软删除与审计保留，以及在 Mongo 驱动下可跨实例共享的全局/认证分层限流与幂等键存储。
+>当前运行时基线已包含：基于密码的注册、`POST /auth/login`、`POST /auth/refresh`、密码重置、账号禁用与会话吊销、生产环境 JWT 鉴权、请求/链路 ID、可选 OTLP tracing、结构化 JSON 日志、`/health` + `/livez` + `/readyz` + `/metrics`、Mongo 版本化迁移、领域驱动的软删除与审计保留、分配任务时的被指派者存在/活跃校验，以及在 Mongo 驱动下可跨实例共享的全局/认证分层限流与幂等键存储。启用 Mongo 驱动时，任务写入与身份关键流程会在事务中执行。
 
 ---
 
@@ -51,15 +51,68 @@ graph LR
 
 ```text
 taskflow/
-├── cmd/                # 入口点 (HTTP 服务)
+├── cmd/
+│   ├── server/         # HTTP 服务入口
+│   └── migrate/        # Mongo migration CLI
 ├── internal/
+│   ├── domain/         # 聚合根、实体、值对象、领域错误
+│   │   ├── task/       # 任务聚合、状态机、领域事件
+│   │   ├── user/       # 账户聚合、Actor、Role
+│   │   ├── identity/   # Refresh / 密码重置 token 实体
+│   │   ├── record/     # 协作记录实体
+│   │   ├── audit/      # 审计日志实体与动作
+│   │   ├── event/      # 领域事件契约
+│   │   └── ports/      # 仓储接口（六边形边界）
+│   ├── service/        # TaskService、IdentityService、事件落库
+│   ├── repository/     # Mongo/内存适配器（ports 类型别名）
+│   ├── model/          # HTTP DTO 与领域映射
+│   ├── handler/        # HTTP 传输层（依赖 service，不依赖 repository）
+│   ├── middleware/     # 鉴权、限流、幂等、tracing
+│   ├── router/         # 路由装配
 │   ├── bootstrap/      # 依赖注入与应用组装
-│   ├── service/        # 强约束状态机与业务规则
-│   ├── repository/     # 持久化抽象 (MongoDB/内存)
-│   └── domain/         # 核心实体与值对象
-├── docs/               # 边界定义与项目目标
-└── scripts/            # 部署与工具脚本
+│   ├── config/
+│   ├── database/       # Mongo 客户端与事务执行
+│   ├── migrations/
+│   └── observability/  # 日志、指标、tracing
+├── scripts/            # compose_smoke、security_audit、perf_smoke、rollback
+├── deploy/             # OTLP collector 示例
+└── reports/            # 安全与性能基线报告
 ```
+
+**分层规则**
+
+| 层级 | 职责 | 依赖 |
+| --- | --- | --- |
+| `domain/*` | 不变量、状态转移、聚合行为 | 仅 domain 包 |
+| `domain/ports` | 持久化契约 | domain 类型 |
+| `service` | 用例编排、事务、事件持久化 | `domain`、`ports`、`model` |
+| `repository` | Mongo/内存实现 | `domain`、`ports` |
+| `handler` / `middleware` / `router` | HTTP 传输与横切能力 | `service`、`ports`（鉴权查询）、`model` |
+
+核心应用服务：
+
+- `TaskService` — 任务生命周期、审计/记录副作用、被指派者校验
+- `IdentityService` — `Authenticate`、注册、refresh 轮转、密码重置、禁用账户
+</details>
+
+<details>
+<summary><b>HTTP API 一览</b></summary>
+
+公开接口：
+
+- `POST /users`、`POST /auth/login`、`POST /auth/refresh`
+- `POST /auth/password-reset/request`、`POST /auth/password-reset/confirm`
+
+鉴权后接口：
+
+- `GET /me`、`POST /users/:id/disable`、`POST /users/:id/revoke-sessions`
+- `POST /tasks`、`GET /tasks`、`GET /tasks/:id`、`PATCH /tasks/:id`、`DELETE /tasks/:id`
+- `POST /tasks/:id/{assign,start,submit,reject,approve,close,cancel,reactivate}`
+- `GET /tasks/:id/records`、`GET /tasks/:id/audit_logs`
+
+系统接口：
+
+- `GET /health`、`GET /livez`、`GET /readyz`、`GET /metrics`
 </details>
 
 <details>
@@ -117,9 +170,10 @@ bash scripts/compose_smoke.sh
 
 ## 战略边界
 
-- **审计追踪:** 每一个状态变更都会触发 `AuditLog`，确保专业级的合规与追责。
-- **内建账户基线:** 已内置密码登录、refresh token、密码重置、账号禁用与会话吊销；SSO / OAuth 仍属于后续集成层能力。
-- **高集成性:** 遵循高完整性的 Go 语言标准，最小化第三方依赖冗余。
+- **审计追踪:** 每一个状态变更都会触发 `AuditLog`。软删除通过任务聚合的 `MarkDeleted` 完成并保留审计，不存在仓储层硬删除捷径。
+- **内建账户基线:** `IdentityService` 统一承载认证与账户生命周期。密码登录、refresh 轮转、密码重置、禁用与会话吊销已内置；SSO / OAuth 仍属于后续集成层能力。
+- **持久化校验:** 任务状态读取时经 `ParseStatus` 校验；分配任务要求被指派者存在且处于活跃状态。
+- **分层清晰:** Handler 与 Router 依赖 `domain/ports`，不直接依赖具体仓储实现；Service 层向 HTTP 层导出可映射的错误类型。
 
 ---
 
