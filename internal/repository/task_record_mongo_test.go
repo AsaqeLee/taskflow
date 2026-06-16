@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainrecord "github.com/AsaqeLee/taskflow/internal/domain/record"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -16,41 +16,44 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 	repo := newTestMongoTaskRecordRepository(t)
 	now := time.Now().UTC()
 
-	first, err := repo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_200",
-		AuthorID:  "u_worker_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "submitted",
-		CreatedAt: now.Add(-time.Minute),
-	})
+	first, err := repo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_200",
+		"u_worker_001",
+		domainrecord.TypeSubmit,
+		"submitted",
+		now.Add(-time.Minute),
+	))
 	if err != nil {
 		t.Fatalf("Create first record: %v", err)
 	}
-	if first.ID == "" {
+	if first.ID() == "" {
 		t.Fatalf("expected generated id for first record")
 	}
 
-	second, err := repo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_200",
-		AuthorID:  "u_owner_001",
-		Type:      model.TaskRecordTypeApprove,
-		Content:   "approved",
-		CreatedAt: now,
-	})
+	second, err := repo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_200",
+		"u_owner_001",
+		domainrecord.TypeApprove,
+		"approved",
+		now,
+	))
 	if err != nil {
 		t.Fatalf("Create second record: %v", err)
 	}
-	if second.ID == "" {
+	if second.ID() == "" {
 		t.Fatalf("expected generated id for second record")
 	}
 
-	_, err = repo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_other",
-		AuthorID:  "u_other_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "ignored",
-		CreatedAt: now.Add(time.Minute),
-	})
+	_, err = repo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_other",
+		"u_other_001",
+		domainrecord.TypeSubmit,
+		"ignored",
+		now.Add(time.Minute),
+	))
 	if err != nil {
 		t.Fatalf("Create other task record: %v", err)
 	}
@@ -62,8 +65,8 @@ func TestMongoTaskRecordRepository_CreateAndListByTaskID(t *testing.T) {
 	if len(records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(records))
 	}
-	if records[0].ID != first.ID || records[1].ID != second.ID {
-		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID, second.ID, records[0].ID, records[1].ID)
+	if records[0].ID() != first.ID() || records[1].ID() != second.ID() {
+		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID(), second.ID(), records[0].ID(), records[1].ID())
 	}
 }
 

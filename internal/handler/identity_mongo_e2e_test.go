@@ -13,6 +13,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -46,9 +47,9 @@ func TestIdentityHandler_MongoRefreshReuseResetAndSessionRevocation(t *testing.T
 		db.Collection("password_reset_tokens"),
 	)
 	metrics := observability.NewMetrics()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
 	handler := NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		"test_secret",
 		time.Hour,
 		24*time.Hour,

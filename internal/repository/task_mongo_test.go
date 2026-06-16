@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -20,31 +20,34 @@ func TestMongoTaskRepository_CreateAndGetByID(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 	now := time.Now().UTC()
 
-	created, err := repo.Create(context.Background(), model.Task{
-		Title:       "Mongo create",
-		Description: "persist me",
-		Status:      "open",
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	created, err := repo.Create(context.Background(), domaintask.Restore(
+		"",
+		"Mongo create",
+		"persist me",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if created.ID == "" {
+	if created.ID() == "" {
 		t.Fatalf("expected generated id")
 	}
 
-	got, err := repo.GetByID(context.Background(), created.ID)
+	got, err := repo.GetByID(context.Background(), created.ID())
 	if err != nil {
 		t.Fatalf("GetByID returned error: %v", err)
 	}
-	if got.ID != created.ID {
-		t.Fatalf("expected id %q, got %q", created.ID, got.ID)
+	if got.ID() != created.ID() {
+		t.Fatalf("expected id %q, got %q", created.ID(), got.ID())
 	}
-	if got.Title != created.Title {
-		t.Fatalf("expected title %q, got %q", created.Title, got.Title)
+	if got.Title() != created.Title() {
+		t.Fatalf("expected title %q, got %q", created.Title(), got.Title())
 	}
 }
 
@@ -53,26 +56,34 @@ func TestMongoTaskRepository_ListOrdersByCreatedAtAscending(t *testing.T) {
 	firstTime := time.Now().UTC().Add(-time.Hour)
 	secondTime := firstTime.Add(time.Minute)
 
-	first, err := repo.Create(context.Background(), model.Task{
-		Title:       "first",
-		Description: "",
-		Status:      "open",
-		CreatorID:   "u_owner_001",
-		CreatedAt:   firstTime,
-		UpdatedAt:   firstTime,
-	})
+	first, err := repo.Create(context.Background(), domaintask.Restore(
+		"",
+		"first",
+		"",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		firstTime,
+		firstTime,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("Create first task: %v", err)
 	}
 
-	second, err := repo.Create(context.Background(), model.Task{
-		Title:       "second",
-		Description: "",
-		Status:      "open",
-		CreatorID:   "u_owner_001",
-		CreatedAt:   secondTime,
-		UpdatedAt:   secondTime,
-	})
+	second, err := repo.Create(context.Background(), domaintask.Restore(
+		"",
+		"second",
+		"",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		secondTime,
+		secondTime,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("Create second task: %v", err)
 	}
@@ -84,8 +95,8 @@ func TestMongoTaskRepository_ListOrdersByCreatedAtAscending(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 tasks, got %d", len(items))
 	}
-	ids := []string{items[0].ID, items[1].ID}
-	expected := []string{first.ID, second.ID}
+	ids := []string{items[0].ID(), items[1].ID()}
+	expected := []string{first.ID(), second.ID()}
 	if !equalStrings(ids, expected) {
 		t.Fatalf("expected ids %v, got %v", expected, ids)
 	}
@@ -95,41 +106,52 @@ func TestMongoTaskRepository_UpdatePersistsChanges(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 	now := time.Now().UTC()
 
-	created, err := repo.Create(context.Background(), model.Task{
-		Title:       "before update",
-		Description: "old",
-		Status:      "open",
-		CreatorID:   "u_owner_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	created, err := repo.Create(context.Background(), domaintask.Restore(
+		"",
+		"before update",
+		"old",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	created.Title = "after update"
-	created.Description = "new"
-	created.Status = "assigned"
-	created.AssigneeID = "u_worker_001"
-	created.UpdatedAt = now.Add(time.Minute)
+	updatedTask := domaintask.Restore(
+		created.ID(),
+		"after update",
+		"new",
+		domaintask.StatusAssigned,
+		created.CreatorID(),
+		"u_worker_001",
+		created.CreatedAt(),
+		now.Add(time.Minute),
+		nil,
+		"",
+	)
 
-	updated, err := repo.Update(context.Background(), created)
+	updated, err := repo.Update(context.Background(), updatedTask)
 	if err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
-	if updated.Title != "after update" {
-		t.Fatalf("expected updated title, got %q", updated.Title)
+	if updated.Title() != "after update" {
+		t.Fatalf("expected updated title, got %q", updated.Title())
 	}
 
-	got, err := repo.GetByID(context.Background(), created.ID)
+	got, err := repo.GetByID(context.Background(), created.ID())
 	if err != nil {
 		t.Fatalf("GetByID returned error: %v", err)
 	}
-	if got.AssigneeID != "u_worker_001" {
-		t.Fatalf("expected assignee to persist, got %q", got.AssigneeID)
+	if got.AssigneeID() != "u_worker_001" {
+		t.Fatalf("expected assignee to persist, got %q", got.AssigneeID())
 	}
-	if got.Status != "assigned" {
-		t.Fatalf("expected status %q, got %q", "assigned", got.Status)
+	if got.Status() != domaintask.StatusAssigned {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusAssigned, got.Status())
 	}
 }
 
@@ -145,7 +167,18 @@ func TestMongoTaskRepository_GetByIDReturnsNotFound(t *testing.T) {
 func TestMongoTaskRepository_UpdateReturnsNotFound(t *testing.T) {
 	repo := newTestMongoTaskRepository(t)
 
-	_, err := repo.Update(context.Background(), model.Task{ID: "missing"})
+	_, err := repo.Update(context.Background(), domaintask.Restore(
+		"missing",
+		"title",
+		"",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		time.Now().UTC(),
+		time.Now().UTC(),
+		nil,
+		"",
+	))
 	if err != ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}

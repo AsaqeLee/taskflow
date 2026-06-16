@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainaudit "github.com/AsaqeLee/taskflow/internal/domain/audit"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -33,26 +33,32 @@ func NewMongoAuditLogRepository(collection *mongo.Collection) *MongoAuditLogRepo
 	return &MongoAuditLogRepository{collection: collection}
 }
 
-func (r *MongoAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
+func (r *MongoAuditLogRepository) Create(ctx context.Context, log domainaudit.Log) (domainaudit.Log, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if log.ID == "" {
-		log.ID = bson.NewObjectID().Hex()
+	if log.ID() == "" {
+		log = log.AssignID(bson.NewObjectID().Hex())
 	}
-	if log.CreatedAt.IsZero() {
-		log.CreatedAt = time.Now().UTC()
+	createdAt := log.CreatedAt()
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+		log = domainaudit.Restore(
+			log.ID(), log.TaskID(), log.ActorID(), log.Action(),
+			log.RequestID(), log.TraceID(), log.IdempotencyKey(), log.SourceIP(), log.UserAgent(),
+			log.FromStatus(), log.ToStatus(), createdAt,
+		)
 	}
 
 	_, err := r.collection.InsertOne(ctx, auditLogToDocument(log))
 	if err != nil {
-		return model.AuditLog{}, err
+		return domainaudit.Log{}, err
 	}
 
 	return log, nil
 }
 
-func (r *MongoAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.AuditLog, error) {
+func (r *MongoAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]domainaudit.Log, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -67,16 +73,16 @@ func (r *MongoAuditLogRepository) ListByTaskID(ctx context.Context, taskID strin
 		return nil, err
 	}
 
-	result := make([]model.AuditLog, 0, len(docs))
+	result := make([]domainaudit.Log, 0, len(docs))
 	for _, doc := range docs {
-		result = append(result, auditLogDocumentToModel(doc))
+		result = append(result, auditLogDocumentToDomain(doc))
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
-			return result[i].ID < result[j].ID
+		if result[i].CreatedAt().Equal(result[j].CreatedAt()) {
+			return result[i].ID() < result[j].ID()
 		}
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 
 	return result, nil
@@ -90,36 +96,36 @@ func (r *MongoAuditLogRepository) DeleteByTaskID(ctx context.Context, taskID str
 	return err
 }
 
-func auditLogToDocument(log model.AuditLog) auditLogDocument {
+func auditLogToDocument(log domainaudit.Log) auditLogDocument {
 	return auditLogDocument{
-		ID:             log.ID,
-		TaskID:         log.TaskID,
-		ActorID:        log.ActorID,
-		Action:         log.Action,
-		RequestID:      log.RequestID,
-		TraceID:        log.TraceID,
-		IdempotencyKey: log.IdempotencyKey,
-		SourceIP:       log.SourceIP,
-		UserAgent:      log.UserAgent,
-		FromStatus:     log.FromStatus,
-		ToStatus:       log.ToStatus,
-		CreatedAt:      log.CreatedAt,
+		ID:             log.ID(),
+		TaskID:         log.TaskID(),
+		ActorID:        log.ActorID(),
+		Action:         log.Action().String(),
+		RequestID:      log.RequestID(),
+		TraceID:        log.TraceID(),
+		IdempotencyKey: log.IdempotencyKey(),
+		SourceIP:       log.SourceIP(),
+		UserAgent:      log.UserAgent(),
+		FromStatus:     log.FromStatus(),
+		ToStatus:       log.ToStatus(),
+		CreatedAt:      log.CreatedAt(),
 	}
 }
 
-func auditLogDocumentToModel(doc auditLogDocument) model.AuditLog {
-	return model.AuditLog{
-		ID:             doc.ID,
-		TaskID:         doc.TaskID,
-		ActorID:        doc.ActorID,
-		Action:         doc.Action,
-		RequestID:      doc.RequestID,
-		TraceID:        doc.TraceID,
-		IdempotencyKey: doc.IdempotencyKey,
-		SourceIP:       doc.SourceIP,
-		UserAgent:      doc.UserAgent,
-		FromStatus:     doc.FromStatus,
-		ToStatus:       doc.ToStatus,
-		CreatedAt:      doc.CreatedAt,
-	}
+func auditLogDocumentToDomain(doc auditLogDocument) domainaudit.Log {
+	return domainaudit.Restore(
+		doc.ID,
+		doc.TaskID,
+		doc.ActorID,
+		domainaudit.Action(doc.Action),
+		doc.RequestID,
+		doc.TraceID,
+		doc.IdempotencyKey,
+		doc.SourceIP,
+		doc.UserAgent,
+		doc.FromStatus,
+		doc.ToStatus,
+		doc.CreatedAt,
+	)
 }

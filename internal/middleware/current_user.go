@@ -36,7 +36,6 @@ func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool
 		}
 
 		var user model.User
-		var err error
 		var authenticated bool
 
 		if token != "" {
@@ -44,16 +43,18 @@ func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool
 			claims, errJwt := auth.ValidateToken(token, jwtSecret)
 			if errJwt == nil && claims != nil {
 				// JWT is valid, find the user by ID
-				user, err = userRepo.FindByID(c.Request.Context(), claims.UserID)
+				account, err := userRepo.FindByID(c.Request.Context(), claims.UserID)
 				if err == nil {
+					user = model.UserFromAccount(account)
 					authenticated = true
 				}
 			}
 
 			// 2. If JWT fails, and devMode is true, fall back to matching plain/legacy token
 			if !authenticated && devMode {
-				user, err = userRepo.FindByToken(c.Request.Context(), token)
+				account, err := userRepo.FindByToken(c.Request.Context(), token)
 				if err == nil {
+					user = model.UserFromAccount(account)
 					authenticated = true
 				}
 			}
@@ -63,8 +64,9 @@ func UserAuth(userRepo repository.UserRepository, jwtSecret string, devMode bool
 		if !authenticated && devMode {
 			userID := c.GetHeader("X-User-ID")
 			if userID != "" {
-				user, err = userRepo.FindByID(c.Request.Context(), userID)
+				account, err := userRepo.FindByID(c.Request.Context(), userID)
 				if err == nil {
+					user = model.UserFromAccount(account)
 					authenticated = true
 				}
 			}

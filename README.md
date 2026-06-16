@@ -51,12 +51,20 @@ graph LR
 
 ```text
 taskflow/
-├── cmd/                # Entry points (HTTP Server)
+├── cmd/                # Entry points (HTTP Server, Migrations)
 ├── internal/
-│   ├── bootstrap/      # Dependency Injection & App Assembly
-│   ├── service/        # Hardened State Machine & Business Rules
-│   ├── repository/     # Persistence Abstractions (Mongo/Memory)
-│   └── domain/         # Core Entities & Value Objects
+│   ├── domain/         # Aggregate roots, entities, value objects, domain errors
+│   │   ├── task/       # Task aggregate, state machine, domain events
+│   │   ├── user/       # Account aggregate, Actor, Role value object
+│   │   ├── record/     # Collaboration record entity
+│   │   ├── audit/      # Audit log entity & actions
+│   │   ├── event/      # Domain event contract
+│   │   └── ports/      # Repository interfaces (hexagonal boundaries)
+│   ├── service/        # Application layer: orchestration & event application
+│   ├── repository/     # Persistence adapters (Mongo/Memory)
+│   ├── model/          # API/persistence DTOs & domain mappers
+│   ├── handler/        # HTTP transport
+│   └── bootstrap/      # Dependency injection & app assembly
 ├── docs/               # Boundary definitions and targets
 └── scripts/            # Deployment and utility scripts
 ```

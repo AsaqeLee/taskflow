@@ -5,17 +5,18 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type IdentityHandler struct {
-	userRepo                 repository.UserRepository
-	identityRepo             repository.IdentityRepository
+	identityService          *service.IdentityService
 	jwtSecret                string
 	accessTokenTTL           time.Duration
 	refreshTokenTTL          time.Duration
@@ -38,8 +39,7 @@ type publicUser struct {
 }
 
 func NewIdentityHandler(
-	userRepo repository.UserRepository,
-	identityRepo repository.IdentityRepository,
+	identityService *service.IdentityService,
 	jwtSecret string,
 	accessTokenTTL time.Duration,
 	refreshTokenTTL time.Duration,
@@ -50,8 +50,7 @@ func NewIdentityHandler(
 	devMode bool,
 ) *IdentityHandler {
 	return &IdentityHandler{
-		userRepo:                 userRepo,
-		identityRepo:             identityRepo,
+		identityService:          identityService,
 		jwtSecret:                jwtSecret,
 		accessTokenTTL:           accessTokenTTL,
 		refreshTokenTTL:          refreshTokenTTL,
@@ -119,41 +118,24 @@ func (h *IdentityHandler) Register(c *gin.Context) {
 		return
 	}
 
-	passwordHash, err := auth.HashPassword(req.Password)
+	created, err := h.identityService.Register(c.Request.Context(), req.ID, req.Name, req.Role, req.Password)
 	if err != nil {
-		if err == auth.ErrWeakPassword {
+		switch err {
+		case service.ErrWeakPassword:
 			h.recordIdentityEvent(identityFlowRegister, "weak_password")
 			httpapi.WriteError(c, http.StatusBadRequest, "weak_password", err.Error())
-			return
+		case domainuser.ErrEmptyUserID, domainuser.ErrEmptyUserName, domainuser.ErrInvalidRole:
+			h.recordIdentityEvent(identityFlowRegister, "invalid_request")
+			httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		default:
+			if err == repository.ErrUserAlreadyExists {
+				h.recordIdentityEvent(identityFlowRegister, "user_exists")
+				httpapi.WriteError(c, http.StatusConflict, "user_exists", "user already exists")
+				return
+			}
+			h.recordIdentityEvent(identityFlowRegister, "create_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "user_create_failed", "failed to create user")
 		}
-		h.recordIdentityEvent(identityFlowRegister, "hash_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "password_hash_failed", "failed to hash password")
-		return
-	}
-
-	now := time.Now().UTC()
-	u := model.User{
-		ID:           req.ID,
-		Name:         req.Name,
-		Role:         req.Role,
-		PasswordHash: passwordHash,
-		Active:       true,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if h.devMode {
-		u.Token = "dev_" + req.ID
-	}
-
-	created, err := h.userRepo.Create(c.Request.Context(), u)
-	if err != nil {
-		if err == repository.ErrUserAlreadyExists {
-			h.recordIdentityEvent(identityFlowRegister, "user_exists")
-			httpapi.WriteError(c, http.StatusConflict, "user_exists", "user already exists")
-			return
-		}
-		h.recordIdentityEvent(identityFlowRegister, "create_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "user_create_failed", "failed to create user")
 		return
 	}
 
@@ -174,13 +156,13 @@ func (h *IdentityHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.FindByID(c.Request.Context(), req.ID)
+	user, err := h.identityService.FindAccount(c.Request.Context(), req.ID)
 	if err != nil {
 		h.recordIdentityEvent(identityFlowLogin, "invalid_credentials")
 		httpapi.Unauthorized(c, "invalid_credentials", auth.ErrInvalidCredentials.Error())
 		return
 	}
-	if !user.Active {
+	if err := h.identityService.EnsureActive(user); err != nil {
 		h.recordIdentityEvent(identityFlowLogin, "account_disabled")
 		httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
 		return
@@ -205,56 +187,22 @@ func (h *IdentityHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	now := time.Now().UTC()
-	current, err := h.identityRepo.FindRefreshToken(c.Request.Context(), auth.HashOpaqueToken(req.RefreshToken))
-	if err != nil || now.After(current.ExpiresAt) {
-		h.recordIdentityEvent(identityFlowRefresh, "invalid_refresh_token")
-		httpapi.Unauthorized(c, "invalid_refresh_token", "refresh token is invalid or expired")
-		return
-	}
-	if current.RevokedAt != nil {
-		if current.ReplacedByTokenHash != "" {
-			_ = h.identityRepo.RevokeUserRefreshTokens(c.Request.Context(), current.UserID, now)
+	user, newRefreshToken, err := h.identityService.RotateRefreshToken(c.Request.Context(), req.RefreshToken, h.refreshTokenTTL)
+	if err != nil {
+		switch err {
+		case service.ErrInvalidRefreshToken:
+			h.recordIdentityEvent(identityFlowRefresh, "invalid_refresh_token")
+			httpapi.Unauthorized(c, "invalid_refresh_token", err.Error())
+		case service.ErrRefreshTokenReused:
 			h.recordIdentityEvent(identityFlowRefresh, "reuse_detected")
 			httpapi.Unauthorized(c, "refresh_token_reused", "refresh token reuse detected; active sessions revoked")
-			return
+		case domainuser.ErrAccountDisabled:
+			h.recordIdentityEvent(identityFlowRefresh, "account_disabled")
+			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
+		default:
+			h.recordIdentityEvent(identityFlowRefresh, "rotation_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "token_rotation_failed", "failed to rotate refresh token")
 		}
-		h.recordIdentityEvent(identityFlowRefresh, "invalid_refresh_token")
-		httpapi.Unauthorized(c, "invalid_refresh_token", "refresh token is invalid or expired")
-		return
-	}
-
-	user, err := h.userRepo.FindByID(c.Request.Context(), current.UserID)
-	if err != nil {
-		h.recordIdentityEvent(identityFlowRefresh, "invalid_refresh_token")
-		httpapi.Unauthorized(c, "invalid_refresh_token", "refresh token is invalid or expired")
-		return
-	}
-	if !user.Active {
-		h.recordIdentityEvent(identityFlowRefresh, "account_disabled")
-		httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
-		return
-	}
-
-	newRefreshToken, newRefreshHash, err := h.newRefreshToken()
-	if err != nil {
-		h.recordIdentityEvent(identityFlowRefresh, "rotation_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "token_generation_failed", "failed to rotate refresh token")
-		return
-	}
-	if err := h.identityRepo.RevokeRefreshToken(c.Request.Context(), current.TokenHash, now, newRefreshHash); err != nil {
-		h.recordIdentityEvent(identityFlowRefresh, "rotation_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "token_rotation_failed", "failed to revoke prior refresh token")
-		return
-	}
-	if err := h.identityRepo.SaveRefreshToken(c.Request.Context(), model.RefreshToken{
-		UserID:    user.ID,
-		TokenHash: newRefreshHash,
-		CreatedAt: now,
-		ExpiresAt: now.Add(h.refreshTokenTTL),
-	}); err != nil {
-		h.recordIdentityEvent(identityFlowRefresh, "rotation_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "token_rotation_failed", "failed to persist refresh token")
 		return
 	}
 
@@ -285,23 +233,14 @@ func (h *IdentityHandler) RequestPasswordReset(c *gin.Context) {
 		"status": "accepted",
 	}
 
-	user, err := h.userRepo.FindByID(c.Request.Context(), req.ID)
-	if err == nil && user.Active {
-		now := time.Now().UTC()
-		if err := h.identityRepo.DeletePasswordResetTokensByUser(c.Request.Context(), user.ID); err == nil {
-			rawToken, tokenHash, tokenErr := h.newPasswordResetToken()
-			if tokenErr == nil {
-				_ = h.identityRepo.SavePasswordResetToken(c.Request.Context(), model.PasswordResetToken{
-					UserID:    user.ID,
-					TokenHash: tokenHash,
-					CreatedAt: now,
-					ExpiresAt: now.Add(h.passwordResetTTL),
-				})
-				if h.devMode {
-					response["reset_token"] = rawToken
-				}
-			}
-		}
+	rawToken, err := h.identityService.RequestPasswordReset(c.Request.Context(), req.ID, h.passwordResetTTL)
+	if err != nil {
+		h.recordIdentityEvent(identityFlowPasswordResetRequest, "reset_request_failed")
+		httpapi.WriteError(c, http.StatusInternalServerError, "password_reset_failed", "failed to create password reset token")
+		return
+	}
+	if rawToken != "" && h.devMode {
+		response["reset_token"] = rawToken
 	}
 
 	h.recordIdentityEvent(identityFlowPasswordResetRequest, "accepted")
@@ -320,47 +259,21 @@ func (h *IdentityHandler) ConfirmPasswordReset(c *gin.Context) {
 		return
 	}
 
-	resetToken, err := h.identityRepo.FindPasswordResetToken(c.Request.Context(), auth.HashOpaqueToken(req.Token))
-	if err != nil ||
-		resetToken.UserID != req.ID ||
-		resetToken.ConsumedAt != nil ||
-		time.Now().UTC().After(resetToken.ExpiresAt) {
-		h.recordIdentityEvent(identityFlowPasswordResetConfirm, "invalid_reset_token")
-		httpapi.WriteError(c, http.StatusBadRequest, "invalid_reset_token", "password reset token is invalid or expired")
-		return
-	}
-
-	passwordHash, err := auth.HashPassword(req.NewPassword)
+	updated, err := h.identityService.ConfirmPasswordReset(c.Request.Context(), req.ID, req.Token, req.NewPassword)
 	if err != nil {
-		if err == auth.ErrWeakPassword {
-			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "weak_password")
-			httpapi.WriteError(c, http.StatusBadRequest, "weak_password", err.Error())
-			return
-		}
-		h.recordIdentityEvent(identityFlowPasswordResetConfirm, "hash_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "password_hash_failed", "failed to hash password")
-		return
-	}
-
-	now := time.Now().UTC()
-	updated, err := h.userRepo.UpdatePassword(c.Request.Context(), req.ID, passwordHash, now)
-	if err != nil {
-		if err == repository.ErrUserNotFound {
+		switch err {
+		case service.ErrInvalidPasswordResetTok:
 			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "invalid_reset_token")
 			httpapi.WriteError(c, http.StatusBadRequest, "invalid_reset_token", "password reset token is invalid or expired")
-			return
+		case service.ErrWeakPassword:
+			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "weak_password")
+			httpapi.WriteError(c, http.StatusBadRequest, "weak_password", err.Error())
+		default:
+			h.recordIdentityEvent(identityFlowPasswordResetConfirm, "update_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "password_reset_failed", "failed to update password")
 		}
-		h.recordIdentityEvent(identityFlowPasswordResetConfirm, "update_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "password_reset_failed", "failed to update password")
 		return
 	}
-	if _, err := h.identityRepo.ConsumePasswordResetToken(c.Request.Context(), auth.HashOpaqueToken(req.Token), now); err != nil {
-		h.recordIdentityEvent(identityFlowPasswordResetConfirm, "consume_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "password_reset_failed", "failed to consume password reset token")
-		return
-	}
-	_ = h.identityRepo.RevokeUserRefreshTokens(c.Request.Context(), req.ID, now)
-	_ = h.identityRepo.DeletePasswordResetTokensByUser(c.Request.Context(), req.ID)
 
 	h.recordIdentityEvent(identityFlowPasswordResetConfirm, "success")
 	c.JSON(http.StatusOK, gin.H{
@@ -383,26 +296,24 @@ func (h *IdentityHandler) DisableAccount(c *gin.Context) {
 		httpapi.WriteError(c, http.StatusBadRequest, "invalid_user_id", "user id is required")
 		return
 	}
-	if currentUser.Role != "owner" && currentUser.ID != targetUserID {
-		h.recordIdentityEvent(identityFlowDisableAccount, "forbidden")
-		httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can disable other accounts")
-		return
-	}
-
-	now := time.Now().UTC()
-	disabled, err := h.userRepo.Disable(c.Request.Context(), targetUserID, currentUser.ID, now)
+	disabled, err := h.identityService.DisableAccount(c.Request.Context(), currentUser, targetUserID)
 	if err != nil {
-		if err == repository.ErrUserNotFound {
+		switch err {
+		case domainuser.ErrForbiddenDisable:
+			h.recordIdentityEvent(identityFlowDisableAccount, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can disable other accounts")
+		case domainuser.ErrAlreadyDisabled:
+			h.recordIdentityEvent(identityFlowDisableAccount, "already_disabled")
+			httpapi.WriteError(c, http.StatusBadRequest, "already_disabled", err.Error())
+		case repository.ErrUserNotFound:
 			h.recordIdentityEvent(identityFlowDisableAccount, "user_not_found")
 			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
-			return
+		default:
+			h.recordIdentityEvent(identityFlowDisableAccount, "disable_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "account_disable_failed", "failed to disable account")
 		}
-		h.recordIdentityEvent(identityFlowDisableAccount, "disable_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "account_disable_failed", "failed to disable account")
 		return
 	}
-	_ = h.identityRepo.RevokeUserRefreshTokens(c.Request.Context(), targetUserID, now)
-	_ = h.identityRepo.DeletePasswordResetTokensByUser(c.Request.Context(), targetUserID)
 
 	h.recordIdentityEvent(identityFlowDisableAccount, "success")
 	c.JSON(http.StatusOK, gin.H{
@@ -424,22 +335,18 @@ func (h *IdentityHandler) RevokeSessions(c *gin.Context) {
 		httpapi.WriteError(c, http.StatusBadRequest, "invalid_user_id", "user id is required")
 		return
 	}
-	if currentUser.Role != "owner" && currentUser.ID != targetUserID {
-		h.recordIdentityEvent(identityFlowRevokeSessions, "forbidden")
-		httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can revoke other users' sessions")
-		return
-	}
-
-	if _, err := h.userRepo.FindByID(c.Request.Context(), targetUserID); err != nil {
-		h.recordIdentityEvent(identityFlowRevokeSessions, "user_not_found")
-		httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
-		return
-	}
-
-	now := time.Now().UTC()
-	if err := h.identityRepo.RevokeUserRefreshTokens(c.Request.Context(), targetUserID, now); err != nil {
-		h.recordIdentityEvent(identityFlowRevokeSessions, "revoke_failed")
-		httpapi.WriteError(c, http.StatusInternalServerError, "session_revoke_failed", "failed to revoke user sessions")
+	if err := h.identityService.RevokeSessions(c.Request.Context(), currentUser, targetUserID); err != nil {
+		switch err {
+		case service.ErrForbiddenSessionRevoke:
+			h.recordIdentityEvent(identityFlowRevokeSessions, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can revoke other users' sessions")
+		case repository.ErrUserNotFound:
+			h.recordIdentityEvent(identityFlowRevokeSessions, "user_not_found")
+			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
+		default:
+			h.recordIdentityEvent(identityFlowRevokeSessions, "revoke_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "session_revoke_failed", "failed to revoke user sessions")
+		}
 		return
 	}
 
@@ -452,19 +359,9 @@ func (h *IdentityHandler) RevokeSessions(c *gin.Context) {
 }
 
 func (h *IdentityHandler) writeSessionResponse(c *gin.Context, status int, user model.User, devLegacyToken string) bool {
-	now := time.Now().UTC()
-	refreshToken, refreshHash, err := h.newRefreshToken()
+	refreshToken, err := h.identityService.IssueRefreshToken(c.Request.Context(), user.ID, h.refreshTokenTTL)
 	if err != nil {
 		httpapi.WriteError(c, http.StatusInternalServerError, "token_generation_failed", "failed to generate refresh token")
-		return false
-	}
-	if err := h.identityRepo.SaveRefreshToken(c.Request.Context(), model.RefreshToken{
-		UserID:    user.ID,
-		TokenHash: refreshHash,
-		CreatedAt: now,
-		ExpiresAt: now.Add(h.refreshTokenTTL),
-	}); err != nil {
-		httpapi.WriteError(c, http.StatusInternalServerError, "token_generation_failed", "failed to persist refresh token")
 		return false
 	}
 
@@ -492,22 +389,6 @@ func (h *IdentityHandler) sessionResponse(user model.User, accessToken, refreshT
 		response["dev_legacy_token_hint"] = devTokenHint(devLegacyToken)
 	}
 	return response
-}
-
-func (h *IdentityHandler) newRefreshToken() (string, string, error) {
-	rawToken, err := auth.GenerateOpaqueToken()
-	if err != nil {
-		return "", "", err
-	}
-	return rawToken, auth.HashOpaqueToken(rawToken), nil
-}
-
-func (h *IdentityHandler) newPasswordResetToken() (string, string, error) {
-	rawToken, err := auth.GenerateOpaqueToken()
-	if err != nil {
-		return "", "", err
-	}
-	return rawToken, auth.HashOpaqueToken(rawToken), nil
 }
 
 func (h *IdentityHandler) allowScopedRateLimit(c *gin.Context, limiter middleware.RateLimiter, scope, subject string) bool {

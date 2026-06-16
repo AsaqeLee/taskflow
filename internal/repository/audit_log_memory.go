@@ -7,54 +7,58 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainaudit "github.com/AsaqeLee/taskflow/internal/domain/audit"
 )
 
 type MemoryAuditLogRepository struct {
 	mu     sync.RWMutex
-	logs   map[string]model.AuditLog
+	logs   map[string]domainaudit.Log
 	nextID int
 }
 
 func NewMemoryAuditLogRepository() *MemoryAuditLogRepository {
 	return &MemoryAuditLogRepository{
-		logs:   make(map[string]model.AuditLog),
+		logs:   make(map[string]domainaudit.Log),
 		nextID: 1,
 	}
 }
 
-func (r *MemoryAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
+func (r *MemoryAuditLogRepository) Create(ctx context.Context, log domainaudit.Log) (domainaudit.Log, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if log.ID == "" {
-		log.ID = fmt.Sprintf("audit_%03d", r.nextID)
+	if log.ID() == "" {
+		log = log.AssignID(fmt.Sprintf("audit_%03d", r.nextID))
 		r.nextID++
 	}
-	if log.CreatedAt.IsZero() {
-		log.CreatedAt = time.Now().UTC()
+	if log.CreatedAt().IsZero() {
+		log = domainaudit.Restore(
+			log.ID(), log.TaskID(), log.ActorID(), log.Action(),
+			log.RequestID(), log.TraceID(), log.IdempotencyKey(), log.SourceIP(), log.UserAgent(),
+			log.FromStatus(), log.ToStatus(), time.Now().UTC(),
+		)
 	}
 
-	r.logs[log.ID] = log
+	r.logs[log.ID()] = log
 	return log, nil
 }
 
-func (r *MemoryAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.AuditLog, error) {
+func (r *MemoryAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]domainaudit.Log, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make([]model.AuditLog, 0)
+	result := make([]domainaudit.Log, 0)
 	for _, log := range r.logs {
-		if log.TaskID == taskID {
+		if log.TaskID() == taskID {
 			result = append(result, log)
 		}
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
-			return result[i].ID < result[j].ID
+		if result[i].CreatedAt().Equal(result[j].CreatedAt()) {
+			return result[i].ID() < result[j].ID()
 		}
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 
 	return result, nil
@@ -65,7 +69,7 @@ func (r *MemoryAuditLogRepository) DeleteByTaskID(ctx context.Context, taskID st
 	defer r.mu.Unlock()
 
 	for id, log := range r.logs {
-		if log.TaskID == taskID {
+		if log.TaskID() == taskID {
 			delete(r.logs, id)
 		}
 	}

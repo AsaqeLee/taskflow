@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	domainaudit "github.com/AsaqeLee/taskflow/internal/domain/audit"
+	domainrecord "github.com/AsaqeLee/taskflow/internal/domain/record"
+	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -23,16 +26,18 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_100",
-		Title:       "Start via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_100",
+		"Start via HTTP",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_test_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -56,8 +61,8 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusInProgress {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusInProgress, resp.Task.Status)
+	if resp.Task.Status != domaintask.StatusInProgress.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusInProgress.String(), resp.Task.Status)
 	}
 }
 
@@ -68,16 +73,18 @@ func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_101",
-		Title:       "Forbidden start",
-		Description: "test",
-		Status:      service.TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_002",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_101",
+		"Forbidden start",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_worker_002",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -103,16 +110,18 @@ func TestTaskHandler_StartReturnsBadRequestForOpenTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_102",
-		Title:       "Open task",
-		Description: "test",
-		Status:      service.TaskStatusOpen,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_102",
+		"Open task",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -139,16 +148,18 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_110",
-		Title:       "Submit via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_110",
+		"Submit via HTTP",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_test_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -174,8 +185,8 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusSubmitted {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusSubmitted, resp.Task.Status)
+	if resp.Task.Status != domaintask.StatusSubmitted.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusSubmitted.String(), resp.Task.Status)
 	}
 	if resp.Record.Type != model.TaskRecordTypeSubmit {
 		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeSubmit, resp.Record.Type)
@@ -193,16 +204,18 @@ func TestTaskHandler_SubmitReturnsForbiddenForNonAssignee(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_111",
-		Title:       "Forbidden submit",
-		Description: "test",
-		Status:      service.TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_002",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_111",
+		"Forbidden submit",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_worker_002",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -230,16 +243,18 @@ func TestTaskHandler_SubmitReturnsBadRequestForNonInProgressTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_112",
-		Title:       "Wrong status",
-		Description: "test",
-		Status:      service.TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_112",
+		"Wrong status",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_test_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -267,16 +282,18 @@ func TestTaskHandler_SubmitReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_113",
-		Title:       "Missing content",
-		Description: "test",
-		Status:      service.TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_test_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_113",
+		"Missing content",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_test_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -304,16 +321,18 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_120",
-		Title:       "Reject via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_120",
+		"Reject via HTTP",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -339,8 +358,8 @@ func TestTaskHandler_RejectReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusAssigned {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusAssigned, resp.Task.Status)
+	if resp.Task.Status != domaintask.StatusAssigned.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusAssigned.String(), resp.Task.Status)
 	}
 	if resp.Record.Type != model.TaskRecordTypeReject {
 		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeReject, resp.Record.Type)
@@ -358,16 +377,18 @@ func TestTaskHandler_RejectReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_121",
-		Title:       "Forbidden reject",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_121",
+		"Forbidden reject",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -395,16 +416,18 @@ func TestTaskHandler_RejectReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_122",
-		Title:       "Wrong reject status",
-		Description: "test",
-		Status:      service.TaskStatusInProgress,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_122",
+		"Wrong reject status",
+		"test",
+		domaintask.StatusInProgress,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -432,16 +455,18 @@ func TestTaskHandler_RejectReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_123",
-		Title:       "Missing reject content",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_123",
+		"Missing reject content",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -469,16 +494,18 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_130",
-		Title:       "Approve via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_130",
+		"Approve via HTTP",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -504,8 +531,8 @@ func TestTaskHandler_ApproveReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusApproved {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusApproved, resp.Task.Status)
+	if resp.Task.Status != domaintask.StatusApproved.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusApproved.String(), resp.Task.Status)
 	}
 	if resp.Record.Type != model.TaskRecordTypeApprove {
 		t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeApprove, resp.Record.Type)
@@ -522,16 +549,18 @@ func TestTaskHandler_ApproveReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_131",
-		Title:       "Forbidden approve",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_131",
+		"Forbidden approve",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -558,16 +587,18 @@ func TestTaskHandler_ApproveReturnsBadRequestForNonSubmittedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_132",
-		Title:       "Wrong approve status",
-		Description: "test",
-		Status:      service.TaskStatusAssigned,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_132",
+		"Wrong approve status",
+		"test",
+		domaintask.StatusAssigned,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -595,16 +626,18 @@ func TestTaskHandler_ApproveReturnsBadRequestForEmptyContent(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_133",
-		Title:       "Missing approve content",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_133",
+		"Missing approve content",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -631,16 +664,18 @@ func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_140",
-		Title:       "Close via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusApproved,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_140",
+		"Close via HTTP",
+		"test",
+		domaintask.StatusApproved,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -664,8 +699,8 @@ func TestTaskHandler_CloseReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusCompleted {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusCompleted, resp.Task.Status)
+	if resp.Task.Status != domaintask.StatusCompleted.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusCompleted.String(), resp.Task.Status)
 	}
 }
 
@@ -676,16 +711,18 @@ func TestTaskHandler_CloseReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_141",
-		Title:       "Forbidden close",
-		Description: "test",
-		Status:      service.TaskStatusApproved,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_141",
+		"Forbidden close",
+		"test",
+		domaintask.StatusApproved,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -711,16 +748,18 @@ func TestTaskHandler_CloseReturnsBadRequestForNonApprovedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_142",
-		Title:       "Wrong close status",
-		Description: "test",
-		Status:      service.TaskStatusSubmitted,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_142",
+		"Wrong close status",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -747,37 +786,41 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_150",
-		Title:       "List records via HTTP",
-		Description: "test",
-		Status:      service.TaskStatusApproved,
-		CreatorID:   "u_test_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_150",
+		"List records via HTTP",
+		"test",
+		domaintask.StatusApproved,
+		"u_test_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	first, err := recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_150",
-		AuthorID:  "u_worker_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "submitted",
-		CreatedAt: now.Add(-time.Minute),
-	})
+	first, err := recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_150",
+		"u_worker_001",
+		domainrecord.TypeSubmit,
+		"submitted",
+		now.Add(-time.Minute),
+	))
 	if err != nil {
 		t.Fatalf("seed first record: %v", err)
 	}
-	second, err := recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_150",
-		AuthorID:  "u_test_001",
-		Type:      model.TaskRecordTypeApprove,
-		Content:   "approved",
-		CreatedAt: now,
-	})
+	second, err := recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_150",
+		"u_test_001",
+		domainrecord.TypeApprove,
+		"approved",
+		now,
+	))
 	if err != nil {
 		t.Fatalf("seed second record: %v", err)
 	}
@@ -804,8 +847,8 @@ func TestTaskHandler_ListRecordsReturnsRecords(t *testing.T) {
 	if len(resp.Records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(resp.Records))
 	}
-	if resp.Records[0].ID != first.ID || resp.Records[1].ID != second.ID {
-		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID, second.ID, resp.Records[0].ID, resp.Records[1].ID)
+	if resp.Records[0].ID != first.ID() || resp.Records[1].ID != second.ID() {
+		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID(), second.ID(), resp.Records[0].ID, resp.Records[1].ID)
 	}
 }
 
@@ -836,14 +879,18 @@ func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_cancel_1",
-		Title:     "Cancel Task",
-		Status:    service.TaskStatusOpen,
-		CreatorID: "u_test_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_cancel_1",
+		"Cancel Task",
+		"test",
+		domaintask.StatusOpen,
+		"u_test_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -869,7 +916,7 @@ func TestTaskHandler_CancelReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusCancelled {
+	if resp.Task.Status != domaintask.StatusCancelled.String() {
 		t.Fatalf("expected status cancelled, got %q", resp.Task.Status)
 	}
 	if resp.Record.Type != model.TaskRecordTypeCancel {
@@ -884,14 +931,18 @@ func TestTaskHandler_CancelReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_cancel_2",
-		Title:     "Cancel Task Error",
-		Status:    service.TaskStatusOpen,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_cancel_2",
+		"Cancel Task Error",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -918,14 +969,18 @@ func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_react_1",
-		Title:     "Reactivate Task",
-		Status:    service.TaskStatusCancelled,
-		CreatorID: "u_test_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_react_1",
+		"Reactivate Task",
+		"test",
+		domaintask.StatusCancelled,
+		"u_test_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -951,7 +1006,7 @@ func TestTaskHandler_ReactivateReturnsUpdatedTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Task.Status != service.TaskStatusOpen {
+	if resp.Task.Status != domaintask.StatusOpen.String() {
 		t.Fatalf("expected status open, got %q", resp.Task.Status)
 	}
 }
@@ -963,14 +1018,18 @@ func TestTaskHandler_DeleteReturnsSuccess(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_del_1",
-		Title:     "Delete Task",
-		Status:    service.TaskStatusOpen,
-		CreatorID: "u_test_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_del_1",
+		"Delete Task",
+		"test",
+		domaintask.StatusOpen,
+		"u_test_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -1002,14 +1061,18 @@ func TestTaskHandler_DeleteReturnsForbiddenForNonOwner(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_del_2",
-		Title:     "Delete Task Forbidden",
-		Status:    service.TaskStatusOpen,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_del_2",
+		"Delete Task Forbidden",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -1036,24 +1099,31 @@ func TestTaskHandler_ListAuditLogsReturnsLogs(t *testing.T) {
 	h := NewTaskHandler(svc)
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_audit_1",
-		Title:     "Audit Log API",
-		Status:    service.TaskStatusOpen,
-		CreatorID: "u_test_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_audit_1",
+		"Audit Log API",
+		"test",
+		domaintask.StatusOpen,
+		"u_test_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = auditRepo.Create(context.Background(), model.AuditLog{
-		TaskID:    "task_audit_1",
-		ActorID:   "u_test_001",
-		Action:    model.AuditActionCreated,
-		CreatedAt: now,
-	})
+	_, err = auditRepo.Create(context.Background(), domainaudit.Restore(
+		"",
+		"task_audit_1",
+		"u_test_001",
+		domainaudit.ActionCreated,
+		"", "", "", "", "",
+		"", "",
+		now,
+	))
 	if err != nil {
 		t.Fatalf("seed audit log: %v", err)
 	}

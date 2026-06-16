@@ -1,0 +1,29 @@
+package domain
+
+import "errors"
+
+var (
+	ErrInvalidTaskID                  = errors.New("task id is required")
+	ErrEmptyTaskTitle                 = errors.New("task title is required")
+	ErrTooShortTaskTitle              = errors.New("task title must be at least 3 characters")
+	ErrEmptyAssigneeID                = errors.New("assignee id is required")
+	ErrEmptyTaskRecordContent         = errors.New("task record content is required")
+	ErrForbiddenUpdate                = errors.New("current user cannot update task")
+	ErrForbiddenAssign                = errors.New("current user cannot assign task")
+	ErrInvalidTaskStatusForAssign     = errors.New("task status does not allow assign")
+	ErrForbiddenStart                 = errors.New("current user cannot start task")
+	ErrInvalidTaskStatusForStart      = errors.New("task status does not allow start")
+	ErrForbiddenSubmit                = errors.New("current user cannot submit task")
+	ErrInvalidTaskStatusForSubmit     = errors.New("task status does not allow submit")
+	ErrForbiddenReject                = errors.New("current user cannot reject task")
+	ErrInvalidTaskStatusForReject     = errors.New("task status does not allow reject")
+	ErrForbiddenApprove               = errors.New("current user cannot approve task")
+	ErrInvalidTaskStatusForApprove    = errors.New("task status does not allow approve")
+	ErrForbiddenClose                 = errors.New("current user cannot close task")
+	ErrInvalidTaskStatusForClose      = errors.New("task status does not allow close")
+	ErrForbiddenCancel                = errors.New("current user cannot cancel task")
+	ErrInvalidTaskStatusForCancel     = errors.New("task status does not allow cancel")
+	ErrForbiddenReactivate            = errors.New("current user cannot reactivate task")
+	ErrInvalidTaskStatusForReactivate = errors.New("task status does not allow reactivate")
+	ErrForbiddenDelete                = errors.New("current user cannot delete task")
+)

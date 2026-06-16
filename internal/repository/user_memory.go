@@ -6,100 +6,126 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 )
 
 type MemoryUserRepository struct {
 	mu     sync.RWMutex
-	users  map[string]model.User
+	users  map[string]domainuser.Account
 	nextID int
 }
 
 func NewMemoryUserRepository() *MemoryUserRepository {
 	return &MemoryUserRepository{
-		users:  make(map[string]model.User),
+		users:  make(map[string]domainuser.Account),
 		nextID: 1,
 	}
 }
 
-func (r *MemoryUserRepository) Create(ctx context.Context, user model.User) (model.User, error) {
+func (r *MemoryUserRepository) Create(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if user.ID == "" {
-		user.ID = fmt.Sprintf("u_%03d", r.nextID)
+	if account.ID() == "" {
+		account = account.AssignID(fmt.Sprintf("u_%03d", r.nextID))
 		r.nextID++
 	}
 
-	if _, exists := r.users[user.ID]; exists {
-		return model.User{}, ErrUserAlreadyExists
-	}
-	if user.CreatedAt.IsZero() {
-		now := time.Now().UTC()
-		user.CreatedAt = now
-		user.UpdatedAt = now
-	}
-	if !user.Active && user.DisabledAt == nil {
-		user.Active = true
+	if _, exists := r.users[account.ID()]; exists {
+		return domainuser.Account{}, ErrUserAlreadyExists
 	}
 
-	r.users[user.ID] = user
-	return user, nil
+	now := time.Now().UTC()
+	if account.CreatedAt().IsZero() {
+		account = domainuser.Restore(
+			account.ID(),
+			account.Name(),
+			account.Role(),
+			account.PasswordHash(),
+			account.LegacyToken(),
+			true,
+			nil,
+			"",
+			now,
+			now,
+		)
+	}
+
+	r.users[account.ID()] = account
+	return account, nil
 }
 
-func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (model.User, error) {
+func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (domainuser.Account, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	user, exists := r.users[id]
+	account, exists := r.users[id]
 	if !exists {
-		return model.User{}, ErrUserNotFound
+		return domainuser.Account{}, ErrUserNotFound
 	}
 
-	return user, nil
+	return account, nil
 }
 
-func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (model.User, error) {
+func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (domainuser.Account, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, user := range r.users {
-		if user.Token == token {
-			return user, nil
+	for _, account := range r.users {
+		if account.LegacyToken() == token {
+			return account, nil
 		}
 	}
 
-	return model.User{}, ErrUserNotFoundByToken
+	return domainuser.Account{}, ErrUserNotFoundByToken
 }
 
-func (r *MemoryUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (model.User, error) {
+func (r *MemoryUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (domainuser.Account, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	user, exists := r.users[id]
+	account, exists := r.users[id]
 	if !exists {
-		return model.User{}, ErrUserNotFound
+		return domainuser.Account{}, ErrUserNotFound
 	}
 
-	user.PasswordHash = passwordHash
-	user.UpdatedAt = updatedAt
-	r.users[id] = user
-	return user, nil
+	account = domainuser.Restore(
+		account.ID(),
+		account.Name(),
+		account.Role(),
+		passwordHash,
+		account.LegacyToken(),
+		account.Active(),
+		account.DisabledAt(),
+		account.DisabledBy(),
+		account.CreatedAt(),
+		updatedAt,
+	)
+	r.users[id] = account
+	return account, nil
 }
 
-func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (model.User, error) {
+func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (domainuser.Account, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	user, exists := r.users[id]
+	account, exists := r.users[id]
 	if !exists {
-		return model.User{}, ErrUserNotFound
+		return domainuser.Account{}, ErrUserNotFound
 	}
 
-	user.Active = false
-	user.DisabledBy = disabledBy
-	user.DisabledAt = &disabledAt
-	user.UpdatedAt = disabledAt
-	r.users[id] = user
-	return user, nil
+	account = domainuser.Restore(
+		account.ID(),
+		account.Name(),
+		account.Role(),
+		account.PasswordHash(),
+		account.LegacyToken(),
+		false,
+		&disabledAt,
+		disabledBy,
+		account.CreatedAt(),
+		disabledAt,
+	)
+	r.users[id] = account
+	return account, nil
 }

@@ -2,9 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -30,31 +31,45 @@ func NewMongoUserRepository(collection *mongo.Collection) *MongoUserRepository {
 	return &MongoUserRepository{collection: collection}
 }
 
-func (r *MongoUserRepository) Create(ctx context.Context, user model.User) (model.User, error) {
+func (r *MongoUserRepository) Create(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if user.ID == "" {
-		user.ID = bson.NewObjectID().Hex()
+	if account.ID() == "" {
+		account = account.AssignID(bson.NewObjectID().Hex())
 	}
-	if user.CreatedAt.IsZero() {
-		now := time.Now().UTC()
-		user.CreatedAt = now
-		user.UpdatedAt = now
-	}
-	if !user.Active && user.DisabledAt == nil {
-		user.Active = true
+	now := time.Now().UTC()
+	if account.CreatedAt().IsZero() {
+		account = domainuser.Restore(
+			account.ID(),
+			account.Name(),
+			account.Role(),
+			account.PasswordHash(),
+			account.LegacyToken(),
+			true,
+			nil,
+			"",
+			now,
+			now,
+		)
 	}
 
-	_, err := r.collection.InsertOne(ctx, userToDocument(user))
+	_, err := r.collection.InsertOne(ctx, accountToDocument(account))
 	if err != nil {
-		return model.User{}, ErrUserAlreadyExists
+		if mongo.IsDuplicateKeyError(err) {
+			return domainuser.Account{}, ErrUserAlreadyExists
+		}
+		var writeErr mongo.WriteException
+		if errors.As(err, &writeErr) && writeErr.HasErrorCode(11000) {
+			return domainuser.Account{}, ErrUserAlreadyExists
+		}
+		return domainuser.Account{}, err
 	}
 
-	return user, nil
+	return account, nil
 }
 
-func (r *MongoUserRepository) FindByID(ctx context.Context, id string) (model.User, error) {
+func (r *MongoUserRepository) FindByID(ctx context.Context, id string) (domainuser.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -62,15 +77,15 @@ func (r *MongoUserRepository) FindByID(ctx context.Context, id string) (model.Us
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return model.User{}, ErrUserNotFound
+			return domainuser.Account{}, ErrUserNotFound
 		}
-		return model.User{}, err
+		return domainuser.Account{}, err
 	}
 
-	return userDocumentToModel(doc), nil
+	return userDocumentToAccount(doc), nil
 }
 
-func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (model.User, error) {
+func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (domainuser.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -78,15 +93,15 @@ func (r *MongoUserRepository) FindByToken(ctx context.Context, token string) (mo
 	err := r.collection.FindOne(ctx, bson.M{"token": token}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return model.User{}, ErrUserNotFoundByToken
+			return domainuser.Account{}, ErrUserNotFoundByToken
 		}
-		return model.User{}, err
+		return domainuser.Account{}, err
 	}
 
-	return userDocumentToModel(doc), nil
+	return userDocumentToAccount(doc), nil
 }
 
-func (r *MongoUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (model.User, error) {
+func (r *MongoUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (domainuser.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -97,16 +112,16 @@ func (r *MongoUserRepository) UpdatePassword(ctx context.Context, id, passwordHa
 		},
 	})
 	if err != nil {
-		return model.User{}, err
+		return domainuser.Account{}, err
 	}
 	if result.MatchedCount == 0 {
-		return model.User{}, ErrUserNotFound
+		return domainuser.Account{}, ErrUserNotFound
 	}
 
 	return r.FindByID(ctx, id)
 }
 
-func (r *MongoUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (model.User, error) {
+func (r *MongoUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (domainuser.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -119,46 +134,47 @@ func (r *MongoUserRepository) Disable(ctx context.Context, id, disabledBy string
 		},
 	})
 	if err != nil {
-		return model.User{}, err
+		return domainuser.Account{}, err
 	}
 	if result.MatchedCount == 0 {
-		return model.User{}, ErrUserNotFound
+		return domainuser.Account{}, ErrUserNotFound
 	}
 
 	return r.FindByID(ctx, id)
 }
 
-func userToDocument(user model.User) userDocument {
+func accountToDocument(account domainuser.Account) userDocument {
 	return userDocument{
-		ID:           user.ID,
-		Name:         user.Name,
-		Role:         user.Role,
-		PasswordHash: user.PasswordHash,
-		Token:        user.Token,
-		Active:       user.Active,
-		DisabledAt:   user.DisabledAt,
-		DisabledBy:   user.DisabledBy,
-		CreatedAt:    user.CreatedAt,
-		UpdatedAt:    user.UpdatedAt,
+		ID:           account.ID(),
+		Name:         account.Name(),
+		Role:         account.Role().String(),
+		PasswordHash: account.PasswordHash(),
+		Token:        account.LegacyToken(),
+		Active:       account.Active(),
+		DisabledAt:   account.DisabledAt(),
+		DisabledBy:   account.DisabledBy(),
+		CreatedAt:    account.CreatedAt(),
+		UpdatedAt:    account.UpdatedAt(),
 	}
 }
 
-func userDocumentToModel(doc userDocument) model.User {
+func userDocumentToAccount(doc userDocument) domainuser.Account {
 	active := doc.Active
 	if !active && doc.DisabledAt == nil {
 		active = true
 	}
+	role, _ := domainuser.ParseRole(doc.Role)
 
-	return model.User{
-		ID:           doc.ID,
-		Name:         doc.Name,
-		Role:         doc.Role,
-		PasswordHash: doc.PasswordHash,
-		Token:        doc.Token,
-		Active:       active,
-		DisabledAt:   doc.DisabledAt,
-		DisabledBy:   doc.DisabledBy,
-		CreatedAt:    doc.CreatedAt,
-		UpdatedAt:    doc.UpdatedAt,
-	}
+	return domainuser.Restore(
+		doc.ID,
+		doc.Name,
+		role,
+		doc.PasswordHash,
+		doc.Token,
+		active,
+		doc.DisabledAt,
+		doc.DisabledBy,
+		doc.CreatedAt,
+		doc.UpdatedAt,
+	)
 }

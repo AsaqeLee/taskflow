@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainrecord "github.com/AsaqeLee/taskflow/internal/domain/record"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -29,26 +29,28 @@ func NewMongoTaskRecordRepository(collection *mongo.Collection) *MongoTaskRecord
 	return &MongoTaskRecordRepository{collection: collection}
 }
 
-func (r *MongoTaskRecordRepository) Create(ctx context.Context, record model.TaskRecord) (model.TaskRecord, error) {
+func (r *MongoTaskRecordRepository) Create(ctx context.Context, record domainrecord.Record) (domainrecord.Record, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if record.ID == "" {
-		record.ID = bson.NewObjectID().Hex()
+	if record.ID() == "" {
+		record = record.AssignID(bson.NewObjectID().Hex())
 	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = time.Now().UTC()
+	createdAt := record.CreatedAt()
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+		record = domainrecord.Restore(record.ID(), record.TaskID(), record.AuthorID(), record.Type(), record.Content(), createdAt)
 	}
 
 	_, err := r.collection.InsertOne(ctx, taskRecordToDocument(record))
 	if err != nil {
-		return model.TaskRecord{}, err
+		return domainrecord.Record{}, err
 	}
 
 	return record, nil
 }
 
-func (r *MongoTaskRecordRepository) ListByTaskID(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
+func (r *MongoTaskRecordRepository) ListByTaskID(ctx context.Context, taskID string) ([]domainrecord.Record, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -63,41 +65,34 @@ func (r *MongoTaskRecordRepository) ListByTaskID(ctx context.Context, taskID str
 		return nil, err
 	}
 
-	result := make([]model.TaskRecord, 0, len(docs))
+	result := make([]domainrecord.Record, 0, len(docs))
 	for _, doc := range docs {
-		result = append(result, taskRecordDocumentToModel(doc))
+		result = append(result, taskRecordDocumentToDomain(doc))
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
-			return result[i].ID < result[j].ID
+		if result[i].CreatedAt().Equal(result[j].CreatedAt()) {
+			return result[i].ID() < result[j].ID()
 		}
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 
 	return result, nil
 }
 
-func taskRecordToDocument(record model.TaskRecord) taskRecordDocument {
+func taskRecordToDocument(record domainrecord.Record) taskRecordDocument {
 	return taskRecordDocument{
-		ID:        record.ID,
-		TaskID:    record.TaskID,
-		AuthorID:  record.AuthorID,
-		Type:      record.Type,
-		Content:   record.Content,
-		CreatedAt: record.CreatedAt,
+		ID:        record.ID(),
+		TaskID:    record.TaskID(),
+		AuthorID:  record.AuthorID(),
+		Type:      record.Type().String(),
+		Content:   record.Content(),
+		CreatedAt: record.CreatedAt(),
 	}
 }
 
-func taskRecordDocumentToModel(doc taskRecordDocument) model.TaskRecord {
-	return model.TaskRecord{
-		ID:        doc.ID,
-		TaskID:    doc.TaskID,
-		AuthorID:  doc.AuthorID,
-		Type:      doc.Type,
-		Content:   doc.Content,
-		CreatedAt: doc.CreatedAt,
-	}
+func taskRecordDocumentToDomain(doc taskRecordDocument) domainrecord.Record {
+	return domainrecord.Restore(doc.ID, doc.TaskID, doc.AuthorID, domainrecord.Type(doc.Type), doc.Content, doc.CreatedAt)
 }
 
 func (r *MongoTaskRecordRepository) DeleteByTaskID(ctx context.Context, taskID string) error {

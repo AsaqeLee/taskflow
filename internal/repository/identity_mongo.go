@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domainidentity "github.com/AsaqeLee/taskflow/internal/domain/identity"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -40,18 +40,18 @@ func NewMongoIdentityRepository(refreshTokens, passwordResetTokens *mongo.Collec
 	}
 }
 
-func (r *MongoIdentityRepository) SaveRefreshToken(ctx context.Context, token model.RefreshToken) error {
+func (r *MongoIdentityRepository) SaveRefreshToken(ctx context.Context, token domainidentity.RefreshToken) error {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if token.ID == "" {
-		token.ID = bson.NewObjectID().Hex()
+	if token.ID() == "" {
+		token = token.AssignID(bson.NewObjectID().Hex())
 	}
 	_, err := r.refreshTokens.InsertOne(ctx, refreshTokenToDocument(token))
 	return err
 }
 
-func (r *MongoIdentityRepository) FindRefreshToken(ctx context.Context, tokenHash string) (model.RefreshToken, error) {
+func (r *MongoIdentityRepository) FindRefreshToken(ctx context.Context, tokenHash string) (domainidentity.RefreshToken, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -59,9 +59,9 @@ func (r *MongoIdentityRepository) FindRefreshToken(ctx context.Context, tokenHas
 	err := r.refreshTokens.FindOne(ctx, bson.M{"token_hash": tokenHash}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return model.RefreshToken{}, ErrRefreshTokenNotFound
+			return domainidentity.RefreshToken{}, ErrRefreshTokenNotFound
 		}
-		return model.RefreshToken{}, err
+		return domainidentity.RefreshToken{}, err
 	}
 
 	return refreshTokenDocumentToModel(doc), nil
@@ -105,18 +105,18 @@ func (r *MongoIdentityRepository) RevokeUserRefreshTokens(ctx context.Context, u
 	return err
 }
 
-func (r *MongoIdentityRepository) SavePasswordResetToken(ctx context.Context, token model.PasswordResetToken) error {
+func (r *MongoIdentityRepository) SavePasswordResetToken(ctx context.Context, token domainidentity.PasswordResetToken) error {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if token.ID == "" {
-		token.ID = bson.NewObjectID().Hex()
+	if token.ID() == "" {
+		token = token.AssignID(bson.NewObjectID().Hex())
 	}
 	_, err := r.passwordResetTokens.InsertOne(ctx, passwordResetTokenToDocument(token))
 	return err
 }
 
-func (r *MongoIdentityRepository) FindPasswordResetToken(ctx context.Context, tokenHash string) (model.PasswordResetToken, error) {
+func (r *MongoIdentityRepository) FindPasswordResetToken(ctx context.Context, tokenHash string) (domainidentity.PasswordResetToken, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -124,21 +124,21 @@ func (r *MongoIdentityRepository) FindPasswordResetToken(ctx context.Context, to
 	err := r.passwordResetTokens.FindOne(ctx, bson.M{"token_hash": tokenHash}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return model.PasswordResetToken{}, ErrPasswordResetTokenNotFound
+			return domainidentity.PasswordResetToken{}, ErrPasswordResetTokenNotFound
 		}
-		return model.PasswordResetToken{}, err
+		return domainidentity.PasswordResetToken{}, err
 	}
 
 	return passwordResetTokenDocumentToModel(doc), nil
 }
 
-func (r *MongoIdentityRepository) ConsumePasswordResetToken(ctx context.Context, tokenHash string, consumedAt time.Time) (model.PasswordResetToken, error) {
+func (r *MongoIdentityRepository) ConsumePasswordResetToken(ctx context.Context, tokenHash string, consumedAt time.Time) (domainidentity.PasswordResetToken, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	current, err := r.FindPasswordResetToken(ctx, tokenHash)
 	if err != nil {
-		return model.PasswordResetToken{}, err
+		return domainidentity.PasswordResetToken{}, err
 	}
 
 	result, err := r.passwordResetTokens.UpdateOne(ctx, bson.M{"token_hash": tokenHash}, bson.M{
@@ -147,14 +147,13 @@ func (r *MongoIdentityRepository) ConsumePasswordResetToken(ctx context.Context,
 		},
 	})
 	if err != nil {
-		return model.PasswordResetToken{}, err
+		return domainidentity.PasswordResetToken{}, err
 	}
 	if result.MatchedCount == 0 {
-		return model.PasswordResetToken{}, ErrPasswordResetTokenNotFound
+		return domainidentity.PasswordResetToken{}, ErrPasswordResetTokenNotFound
 	}
 
-	current.ConsumedAt = &consumedAt
-	return current, nil
+	return current.Consume(consumedAt), nil
 }
 
 func (r *MongoIdentityRepository) DeletePasswordResetTokensByUser(ctx context.Context, userID string) error {
@@ -165,48 +164,33 @@ func (r *MongoIdentityRepository) DeletePasswordResetTokensByUser(ctx context.Co
 	return err
 }
 
-func refreshTokenToDocument(token model.RefreshToken) refreshTokenDocument {
+func refreshTokenToDocument(token domainidentity.RefreshToken) refreshTokenDocument {
 	return refreshTokenDocument{
-		ID:                  token.ID,
-		UserID:              token.UserID,
-		TokenHash:           token.TokenHash,
-		CreatedAt:           token.CreatedAt,
-		ExpiresAt:           token.ExpiresAt,
-		RevokedAt:           token.RevokedAt,
-		ReplacedByTokenHash: token.ReplacedByTokenHash,
+		ID:                  token.ID(),
+		UserID:              token.UserID(),
+		TokenHash:           token.TokenHash(),
+		CreatedAt:           token.CreatedAt(),
+		ExpiresAt:           token.ExpiresAt(),
+		RevokedAt:           token.RevokedAt(),
+		ReplacedByTokenHash: token.ReplacedByTokenHash(),
 	}
 }
 
-func refreshTokenDocumentToModel(doc refreshTokenDocument) model.RefreshToken {
-	return model.RefreshToken{
-		ID:                  doc.ID,
-		UserID:              doc.UserID,
-		TokenHash:           doc.TokenHash,
-		CreatedAt:           doc.CreatedAt,
-		ExpiresAt:           doc.ExpiresAt,
-		RevokedAt:           doc.RevokedAt,
-		ReplacedByTokenHash: doc.ReplacedByTokenHash,
-	}
+func refreshTokenDocumentToModel(doc refreshTokenDocument) domainidentity.RefreshToken {
+	return domainidentity.RestoreRefreshToken(doc.ID, doc.UserID, doc.TokenHash, doc.CreatedAt, doc.ExpiresAt, doc.RevokedAt, doc.ReplacedByTokenHash)
 }
 
-func passwordResetTokenToDocument(token model.PasswordResetToken) passwordResetTokenDocument {
+func passwordResetTokenToDocument(token domainidentity.PasswordResetToken) passwordResetTokenDocument {
 	return passwordResetTokenDocument{
-		ID:         token.ID,
-		UserID:     token.UserID,
-		TokenHash:  token.TokenHash,
-		CreatedAt:  token.CreatedAt,
-		ExpiresAt:  token.ExpiresAt,
-		ConsumedAt: token.ConsumedAt,
+		ID:         token.ID(),
+		UserID:     token.UserID(),
+		TokenHash:  token.TokenHash(),
+		CreatedAt:  token.CreatedAt(),
+		ExpiresAt:  token.ExpiresAt(),
+		ConsumedAt: token.ConsumedAt(),
 	}
 }
 
-func passwordResetTokenDocumentToModel(doc passwordResetTokenDocument) model.PasswordResetToken {
-	return model.PasswordResetToken{
-		ID:         doc.ID,
-		UserID:     doc.UserID,
-		TokenHash:  doc.TokenHash,
-		CreatedAt:  doc.CreatedAt,
-		ExpiresAt:  doc.ExpiresAt,
-		ConsumedAt: doc.ConsumedAt,
-	}
+func passwordResetTokenDocumentToModel(doc passwordResetTokenDocument) domainidentity.PasswordResetToken {
+	return domainidentity.RestorePasswordResetToken(doc.ID, doc.UserID, doc.TokenHash, doc.CreatedAt, doc.ExpiresAt, doc.ConsumedAt)
 }

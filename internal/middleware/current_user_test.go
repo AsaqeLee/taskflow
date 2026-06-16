@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
-	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/testutil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,15 +18,7 @@ func TestUserAuthMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	userRepo := repository.NewMemoryUserRepository()
-	_, err := userRepo.Create(context.Background(), model.User{
-		ID:    "u_test_001",
-		Name:  "Test Creator",
-		Role:  "owner",
-		Token: "token_creator",
-	})
-	if err != nil {
-		t.Fatalf("failed to seed user: %v", err)
-	}
+	testutil.SeedAccount(t, userRepo, "u_test_001", "Test Creator", "owner", "token_creator")
 
 	tests := []struct {
 		name           string
@@ -123,15 +115,7 @@ func TestUserAuthMiddleware_JWT(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	userID := "u_test_jwt"
-	_, err := userRepo.Create(context.Background(), model.User{
-		ID:    userID,
-		Name:  "JWT User",
-		Role:  "owner",
-		Token: "some_legacy_token",
-	})
-	if err != nil {
-		t.Fatalf("failed to seed user: %v", err)
-	}
+	testutil.SeedAccount(t, userRepo, userID, "JWT User", "owner", "some_legacy_token")
 
 	secret := "my_jwt_test_secret"
 
@@ -248,22 +232,14 @@ func TestUserAuthMiddleware_RejectsDisabledAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	userRepo := repository.NewMemoryUserRepository()
-	created, err := userRepo.Create(context.Background(), model.User{
-		ID:    "u_disabled_001",
-		Name:  "Disabled User",
-		Role:  "human",
-		Token: "disabled_legacy_token",
-	})
-	if err != nil {
-		t.Fatalf("failed to seed user: %v", err)
-	}
+	created := testutil.SeedAccount(t, userRepo, "u_disabled_001", "Disabled User", "human", "disabled_legacy_token")
 
-	if _, err := userRepo.Disable(context.Background(), created.ID, "u_admin", time.Now().UTC()); err != nil {
+	if _, err := userRepo.Disable(context.Background(), created.ID(), "u_admin", time.Now().UTC()); err != nil {
 		t.Fatalf("failed to disable user: %v", err)
 	}
 
 	secret := "my_jwt_test_secret"
-	accessToken, err := auth.GenerateToken(created.ID, created.Role, secret, time.Hour)
+	accessToken, err := auth.GenerateToken(created.ID(), created.Role().String(), secret, time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}

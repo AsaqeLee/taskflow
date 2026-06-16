@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -34,49 +34,49 @@ func NewMongoTaskRepository(collection *mongo.Collection) *MongoTaskRepository {
 	return &MongoTaskRepository{collection: collection}
 }
 
-func (r *MongoTaskRepository) Create(ctx context.Context, task model.Task) (model.Task, error) {
+func (r *MongoTaskRepository) Create(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	if task.ID == "" {
-		task.ID = bson.NewObjectID().Hex()
+	if task.ID() == "" {
+		task = task.AssignID(bson.NewObjectID().Hex())
 	}
 
 	_, err := r.collection.InsertOne(ctx, taskToDocument(task))
 	if err != nil {
-		return model.Task{}, err
+		return domaintask.Task{}, err
 	}
 
 	return task, nil
 }
 
-func (r *MongoTaskRepository) GetByID(ctx context.Context, id string) (model.Task, error) {
+func (r *MongoTaskRepository) GetByID(ctx context.Context, id string) (domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	var doc taskDocument
 	err := r.collection.FindOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}}).Decode(&doc)
 	if err != nil {
-		return model.Task{}, taskDocumentError(err)
+		return domaintask.Task{}, taskDocumentError(err)
 	}
 
 	return documentToTask(doc), nil
 }
 
-func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (model.Task, error) {
+func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	var doc taskDocument
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if err != nil {
-		return model.Task{}, taskDocumentError(err)
+		return domaintask.Task{}, taskDocumentError(err)
 	}
 
 	return documentToTask(doc), nil
 }
 
-func (r *MongoTaskRepository) List(ctx context.Context) ([]model.Task, error) {
+func (r *MongoTaskRepository) List(ctx context.Context) ([]domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
@@ -91,73 +91,73 @@ func (r *MongoTaskRepository) List(ctx context.Context) ([]model.Task, error) {
 		return nil, err
 	}
 
-	result := make([]model.Task, 0, len(docs))
+	result := make([]domaintask.Task, 0, len(docs))
 	for _, doc := range docs {
 		result = append(result, documentToTask(doc))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 
 	return result, nil
 }
 
-func (r *MongoTaskRepository) Update(ctx context.Context, task model.Task) (model.Task, error) {
+func (r *MongoTaskRepository) Update(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
 	update := bson.M{"$set": bson.M{
-		"title":       task.Title,
-		"description": task.Description,
-		"status":      task.Status,
-		"creator_id":  task.CreatorID,
-		"assignee_id": task.AssigneeID,
-		"created_at":  task.CreatedAt,
-		"updated_at":  task.UpdatedAt,
-		"deleted_at":  task.DeletedAt,
-		"deleted_by":  task.DeletedBy,
+		"title":       task.Title(),
+		"description": task.Description(),
+		"status":      task.Status().String(),
+		"creator_id":  task.CreatorID(),
+		"assignee_id": task.AssigneeID(),
+		"created_at":  task.CreatedAt(),
+		"updated_at":  task.UpdatedAt(),
+		"deleted_at":  task.DeletedAt(),
+		"deleted_by":  task.DeletedBy(),
 	}}
 
-	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": task.ID}, update)
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": task.ID()}, update)
 	if err != nil {
-		return model.Task{}, err
+		return domaintask.Task{}, err
 	}
 	if result.MatchedCount == 0 {
-		return model.Task{}, ErrTaskNotFound
+		return domaintask.Task{}, ErrTaskNotFound
 	}
 
 	return task, nil
 }
 
-func taskToDocument(task model.Task) taskDocument {
+func taskToDocument(task domaintask.Task) taskDocument {
 	return taskDocument{
-		ID:          task.ID,
-		Title:       task.Title,
-		Description: task.Description,
-		Status:      task.Status,
-		CreatorID:   task.CreatorID,
-		AssigneeID:  task.AssigneeID,
-		CreatedAt:   task.CreatedAt,
-		UpdatedAt:   task.UpdatedAt,
-		DeletedAt:   task.DeletedAt,
-		DeletedBy:   task.DeletedBy,
+		ID:          task.ID(),
+		Title:       task.Title(),
+		Description: task.Description(),
+		Status:      task.Status().String(),
+		CreatorID:   task.CreatorID(),
+		AssigneeID:  task.AssigneeID(),
+		CreatedAt:   task.CreatedAt(),
+		UpdatedAt:   task.UpdatedAt(),
+		DeletedAt:   task.DeletedAt(),
+		DeletedBy:   task.DeletedBy(),
 	}
 }
 
-func documentToTask(doc taskDocument) model.Task {
-	return model.Task{
-		ID:          doc.ID,
-		Title:       doc.Title,
-		Description: doc.Description,
-		Status:      doc.Status,
-		CreatorID:   doc.CreatorID,
-		AssigneeID:  doc.AssigneeID,
-		CreatedAt:   doc.CreatedAt,
-		UpdatedAt:   doc.UpdatedAt,
-		DeletedAt:   doc.DeletedAt,
-		DeletedBy:   doc.DeletedBy,
-	}
+func documentToTask(doc taskDocument) domaintask.Task {
+	return domaintask.Restore(
+		doc.ID,
+		doc.Title,
+		doc.Description,
+		domaintask.ParseStatus(doc.Status),
+		doc.CreatorID,
+		doc.AssigneeID,
+		doc.CreatedAt,
+		doc.UpdatedAt,
+		doc.DeletedAt,
+		doc.DeletedBy,
+	)
 }
 
 func (r *MongoTaskRepository) Delete(ctx context.Context, id string) error {
@@ -168,7 +168,7 @@ func (r *MongoTaskRepository) Delete(ctx context.Context, id string) error {
 	update := bson.M{"$set": bson.M{
 		"deleted_at": now,
 		"updated_at": now,
-		"status":     "deleted",
+		"status":     domaintask.StatusDeleted.String(),
 	}}
 	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}}, update)
 	if err != nil {

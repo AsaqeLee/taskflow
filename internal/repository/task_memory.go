@@ -7,90 +7,90 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AsaqeLee/taskflow/internal/model"
+	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 )
 
 type MemoryTaskRepository struct {
 	mu     sync.RWMutex
-	tasks  map[string]model.Task
+	tasks  map[string]domaintask.Task
 	nextID int
 }
 
 func NewMemoryTaskRepository() *MemoryTaskRepository {
 	return &MemoryTaskRepository{
-		tasks:  make(map[string]model.Task),
+		tasks:  make(map[string]domaintask.Task),
 		nextID: 1,
 	}
 }
 
-func (r *MemoryTaskRepository) Create(ctx context.Context, task model.Task) (model.Task, error) {
+func (r *MemoryTaskRepository) Create(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if task.ID == "" {
-		task.ID = fmt.Sprintf("task_%03d", r.nextID)
+	if task.ID() == "" {
+		task = task.AssignID(fmt.Sprintf("task_%03d", r.nextID))
 		r.nextID++
 	}
 
-	r.tasks[task.ID] = task
+	r.tasks[task.ID()] = task
 	return task, nil
 }
 
-func (r *MemoryTaskRepository) GetByID(ctx context.Context, id string) (model.Task, error) {
+func (r *MemoryTaskRepository) GetByID(ctx context.Context, id string) (domaintask.Task, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	task, ok := r.tasks[id]
 	if !ok {
-		return model.Task{}, ErrTaskNotFound
+		return domaintask.Task{}, ErrTaskNotFound
 	}
-	if task.DeletedAt != nil {
-		return model.Task{}, ErrTaskNotFound
+	if task.IsDeleted() {
+		return domaintask.Task{}, ErrTaskNotFound
 	}
 
 	return task, nil
 }
 
-func (r *MemoryTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (model.Task, error) {
+func (r *MemoryTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id string) (domaintask.Task, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	task, ok := r.tasks[id]
 	if !ok {
-		return model.Task{}, ErrTaskNotFound
+		return domaintask.Task{}, ErrTaskNotFound
 	}
 
 	return task, nil
 }
 
-func (r *MemoryTaskRepository) List(ctx context.Context) ([]model.Task, error) {
+func (r *MemoryTaskRepository) List(ctx context.Context) ([]domaintask.Task, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make([]model.Task, 0, len(r.tasks))
+	result := make([]domaintask.Task, 0, len(r.tasks))
 	for _, task := range r.tasks {
-		if task.DeletedAt != nil {
+		if task.IsDeleted() {
 			continue
 		}
 		result = append(result, task)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 
 	return result, nil
 }
 
-func (r *MemoryTaskRepository) Update(ctx context.Context, task model.Task) (model.Task, error) {
+func (r *MemoryTaskRepository) Update(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.tasks[task.ID]; !ok {
-		return model.Task{}, ErrTaskNotFound
+	if _, ok := r.tasks[task.ID()]; !ok {
+		return domaintask.Task{}, ErrTaskNotFound
 	}
 
-	r.tasks[task.ID] = task
+	r.tasks[task.ID()] = task
 	return task, nil
 }
 
@@ -103,15 +103,23 @@ func (r *MemoryTaskRepository) Delete(ctx context.Context, id string) error {
 		return ErrTaskNotFound
 	}
 
-	if task.DeletedAt != nil {
+	if task.IsDeleted() {
 		return ErrTaskNotFound
 	}
 
 	now := timeNowUTC()
-	task.DeletedAt = &now
-	task.UpdatedAt = now
-	task.Status = "deleted"
-	r.tasks[id] = task
+	r.tasks[id] = domaintask.Restore(
+		task.ID(),
+		task.Title(),
+		task.Description(),
+		domaintask.StatusDeleted,
+		task.CreatorID(),
+		task.AssigneeID(),
+		task.CreatedAt(),
+		now,
+		&now,
+		"",
+	)
 	return nil
 }
 

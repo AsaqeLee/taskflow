@@ -12,9 +12,9 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/config"
 	"github.com/AsaqeLee/taskflow/internal/database"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/handler"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
-	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/router"
@@ -65,9 +65,9 @@ func NewApp(cfg config.Config) (*App, error) {
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
+	identityService := service.NewIdentityService(userRepo, identityRepo, cfg.DevMode)
 	identityHandler := handler.NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		cfg.JWTSecret,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,
@@ -199,16 +199,17 @@ func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) e
 			return fmt.Errorf("failed to hash seed password for %s: %w", u.ID, hashErr)
 		}
 
+		role, roleErr := domainuser.ParseRole(u.Role)
+		if roleErr != nil {
+			return fmt.Errorf("failed to parse seed role for %s: %w", u.ID, roleErr)
+		}
+
 		now := time.Now().UTC()
-		_, err = userRepo.Create(ctx, model.User{
-			ID:           u.ID,
-			Name:         u.Name,
-			Role:         u.Role,
-			PasswordHash: passwordHash,
-			Token:        u.Token,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		})
+		account, regErr := domainuser.Register(u.ID, u.Name, role, passwordHash, u.Token, now)
+		if regErr != nil {
+			return fmt.Errorf("failed to build seed account for %s: %w", u.ID, regErr)
+		}
+		_, err = userRepo.Create(ctx, account)
 		if err != nil {
 			return fmt.Errorf("failed to seed user %s: %w", u.ID, err)
 		}

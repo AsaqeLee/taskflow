@@ -11,6 +11,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
+	"github.com/AsaqeLee/taskflow/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,9 +20,9 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
 	h := NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		"test_secret",
 		time.Hour,
 		24*time.Hour,
@@ -130,9 +131,9 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
 	h := NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		"test_secret",
 		time.Hour,
 		24*time.Hour,
@@ -235,9 +236,9 @@ func TestIdentityHandler_RefreshReuseAndSessionRevocation(t *testing.T) {
 
 	userRepo := repository.NewMemoryUserRepository()
 	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
 	h := NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		"test_secret",
 		time.Hour,
 		24*time.Hour,

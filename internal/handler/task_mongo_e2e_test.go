@@ -16,6 +16,7 @@ import (
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/service"
+	"github.com/AsaqeLee/taskflow/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -69,38 +70,16 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		mongoDB.Collection("password_reset_tokens"),
 	)
 
-	defaultUsers := []model.User{
-		{
-			ID:    "u_test_001",
-			Name:  "Test Creator",
-			Role:  "owner",
-			Token: "token_creator",
-		},
-		{
-			ID:    "u_test_002",
-			Name:  "Test Assignee",
-			Role:  "human",
-			Token: "token_assignee",
-		},
-		{
-			ID:    "u_agent_001",
-			Name:  "Hermes Agent",
-			Role:  "agent",
-			Token: "token_agent",
-		},
-	}
-	for _, u := range defaultUsers {
-		if _, err := userRepo.Create(context.Background(), u); err != nil {
-			t.Fatalf("failed to seed user %s: %v", u.ID, err)
-		}
-	}
+	testutil.SeedAccount(t, userRepo, "u_test_001", "Test Creator", "owner", "token_creator")
+	testutil.SeedAccount(t, userRepo, "u_test_002", "Test Assignee", "human", "token_assignee")
+	testutil.SeedAccount(t, userRepo, "u_agent_001", "Hermes Agent", "agent", "token_agent")
 
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, dbClient)
 	taskHandler := NewTaskHandler(taskSvc)
+	identityService := service.NewIdentityService(userRepo, identityRepo, false)
 	identityHandler := NewIdentityHandler(
-		userRepo,
-		identityRepo,
+		identityService,
 		"test_secret",
 		time.Hour,
 		24*time.Hour,

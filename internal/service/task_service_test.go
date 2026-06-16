@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/database"
+	domainaudit "github.com/AsaqeLee/taskflow/internal/domain/audit"
+	domainrecord "github.com/AsaqeLee/taskflow/internal/domain/record"
+	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"github.com/AsaqeLee/taskflow/internal/model"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -22,16 +25,18 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_001",
-		Title:       "Start flow",
-		Description: "test",
-		Status:      TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   beforeUpdate,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_001",
+		"Start flow",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		beforeUpdate,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -41,8 +46,8 @@ func TestStartTask_AssigneeCanMoveAssignedTaskToInProgress(t *testing.T) {
 		t.Fatalf("StartTask returned error: %v", err)
 	}
 
-	if task.Status != TaskStatusInProgress {
-		t.Fatalf("expected status %q, got %q", TaskStatusInProgress, task.Status)
+	if task.Status != domaintask.StatusInProgress.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusInProgress.String(), task.Status)
 	}
 	if task.AssigneeID != "u_worker_001" {
 		t.Fatalf("expected assignee to remain unchanged, got %q", task.AssigneeID)
@@ -57,16 +62,18 @@ func TestStartTask_RejectsNonAssignee(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_002",
-		Title:       "Forbidden start",
-		Description: "test",
-		Status:      TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_002",
+		"Forbidden start",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -82,16 +89,18 @@ func TestStartTask_RejectsNonAssignedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_003",
-		Title:       "Wrong status",
-		Description: "test",
-		Status:      TaskStatusOpen,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_003",
+		"Wrong status",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -107,16 +116,18 @@ func TestStartTask_RejectsOpenTaskBeforePermissionCheck(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_004",
-		Title:       "Open task",
-		Description: "test",
-		Status:      TaskStatusOpen,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_004",
+		"Open task",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -134,16 +145,18 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_010",
-		Title:       "Submit flow",
-		Description: "test",
-		Status:      TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   beforeUpdate,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_010",
+		"Submit flow",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		beforeUpdate,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -153,8 +166,8 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 		t.Fatalf("SubmitTask returned error: %v", err)
 	}
 
-	if task.Status != TaskStatusSubmitted {
-		t.Fatalf("expected status %q, got %q", TaskStatusSubmitted, task.Status)
+	if task.Status != domaintask.StatusSubmitted.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusSubmitted.String(), task.Status)
 	}
 	if task.AssigneeID != "u_worker_001" {
 		t.Fatalf("expected assignee to remain unchanged, got %q", task.AssigneeID)
@@ -182,16 +195,18 @@ func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_011",
-		Title:       "Forbidden submit",
-		Description: "test",
-		Status:      TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_011",
+		"Forbidden submit",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -208,16 +223,18 @@ func TestSubmitTask_RejectsNonInProgressStatus(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_012",
-		Title:       "Wrong status",
-		Description: "test",
-		Status:      TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_012",
+		"Wrong status",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -234,16 +251,18 @@ func TestSubmitTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_013",
-		Title:       "Missing record content",
-		Description: "test",
-		Status:      TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_013",
+		"Missing record content",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -261,16 +280,18 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_020",
-		Title:       "Reject flow",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   beforeUpdate,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_020",
+		"Reject flow",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		beforeUpdate,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -280,8 +301,8 @@ func TestRejectTask_OwnerCanMoveSubmittedTaskToAssigned(t *testing.T) {
 		t.Fatalf("RejectTask returned error: %v", err)
 	}
 
-	if task.Status != TaskStatusAssigned {
-		t.Fatalf("expected status %q, got %q", TaskStatusAssigned, task.Status)
+	if task.Status != domaintask.StatusAssigned.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusAssigned.String(), task.Status)
 	}
 	if task.AssigneeID != "u_worker_001" {
 		t.Fatalf("expected assignee to remain unchanged, got %q", task.AssigneeID)
@@ -309,16 +330,18 @@ func TestRejectTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_021",
-		Title:       "Forbidden reject",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_021",
+		"Forbidden reject",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -335,16 +358,18 @@ func TestRejectTask_RejectsNonSubmittedStatus(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_022",
-		Title:       "Wrong reject status",
-		Description: "test",
-		Status:      TaskStatusInProgress,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_022",
+		"Wrong reject status",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -361,16 +386,18 @@ func TestRejectTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_023",
-		Title:       "Missing reject reason",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_023",
+		"Missing reject reason",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -388,16 +415,18 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_030",
-		Title:       "Approve flow",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   beforeUpdate,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_030",
+		"Approve flow",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		beforeUpdate,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -407,8 +436,8 @@ func TestApproveTask_OwnerCanMoveSubmittedTaskToApproved(t *testing.T) {
 		t.Fatalf("ApproveTask returned error: %v", err)
 	}
 
-	if task.Status != TaskStatusApproved {
-		t.Fatalf("expected status %q, got %q", TaskStatusApproved, task.Status)
+	if task.Status != domaintask.StatusApproved.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusApproved.String(), task.Status)
 	}
 	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
@@ -426,16 +455,18 @@ func TestApproveTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_031",
-		Title:       "Forbidden approve",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_031",
+		"Forbidden approve",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -451,16 +482,18 @@ func TestApproveTask_RejectsNonSubmittedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_032",
-		Title:       "Wrong approve status",
-		Description: "test",
-		Status:      TaskStatusAssigned,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_032",
+		"Wrong approve status",
+		"test",
+		domaintask.StatusAssigned,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -477,16 +510,18 @@ func TestApproveTask_RejectsEmptyRecordContent(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_033",
-		Title:       "Missing approve content",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_033",
+		"Missing approve content",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -503,16 +538,18 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 	now := time.Now().UTC()
 	beforeUpdate := now.Add(-time.Second)
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_040",
-		Title:       "Close flow",
-		Description: "test",
-		Status:      TaskStatusApproved,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   beforeUpdate,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_040",
+		"Close flow",
+		"test",
+		domaintask.StatusApproved,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		beforeUpdate,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -522,8 +559,8 @@ func TestCloseTask_OwnerCanMoveApprovedTaskToCompleted(t *testing.T) {
 		t.Fatalf("CloseTask returned error: %v", err)
 	}
 
-	if task.Status != TaskStatusCompleted {
-		t.Fatalf("expected status %q, got %q", TaskStatusCompleted, task.Status)
+	if task.Status != domaintask.StatusCompleted.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusCompleted.String(), task.Status)
 	}
 	if !task.UpdatedAt.After(beforeUpdate) {
 		t.Fatalf("expected updated_at to move forward")
@@ -535,16 +572,18 @@ func TestCloseTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_041",
-		Title:       "Forbidden close",
-		Description: "test",
-		Status:      TaskStatusApproved,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_041",
+		"Forbidden close",
+		"test",
+		domaintask.StatusApproved,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -560,16 +599,18 @@ func TestCloseTask_RejectsNonApprovedStatus(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_042",
-		Title:       "Wrong close status",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_042",
+		"Wrong close status",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -586,47 +627,52 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:          "task_050",
-		Title:       "List records",
-		Description: "test",
-		Status:      TaskStatusSubmitted,
-		CreatorID:   "u_owner_001",
-		AssigneeID:  "u_worker_001",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_050",
+		"List records",
+		"test",
+		domaintask.StatusSubmitted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	first, err := recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_050",
-		AuthorID:  "u_worker_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "first",
-		CreatedAt: now.Add(-time.Minute),
-	})
+	first, err := recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_050",
+		"u_worker_001",
+		domainrecord.TypeSubmit,
+		"first",
+		now.Add(-time.Minute),
+	))
 	if err != nil {
 		t.Fatalf("seed first record: %v", err)
 	}
-	second, err := recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_050",
-		AuthorID:  "u_owner_001",
-		Type:      model.TaskRecordTypeApprove,
-		Content:   "second",
-		CreatedAt: now,
-	})
+	second, err := recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_050",
+		"u_owner_001",
+		domainrecord.TypeApprove,
+		"second",
+		now,
+	))
 	if err != nil {
 		t.Fatalf("seed second record: %v", err)
 	}
-	_, err = recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_other",
-		AuthorID:  "u_other_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "ignored",
-		CreatedAt: now.Add(time.Minute),
-	})
+	_, err = recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_other",
+		"u_other_001",
+		domainrecord.TypeSubmit,
+		"ignored",
+		now.Add(time.Minute),
+	))
 	if err != nil {
 		t.Fatalf("seed other task record: %v", err)
 	}
@@ -638,8 +684,8 @@ func TestListTaskRecords_ReturnsTaskRecordsOrderedByCreatedAt(t *testing.T) {
 	if len(records) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(records))
 	}
-	if records[0].ID != first.ID || records[1].ID != second.ID {
-		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID, second.ID, records[0].ID, records[1].ID)
+	if records[0].ID != first.ID() || records[1].ID != second.ID() {
+		t.Fatalf("expected ordered record ids [%s %s], got [%s %s]", first.ID(), second.ID(), records[0].ID, records[1].ID)
 	}
 }
 
@@ -659,17 +705,26 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	states := []string{TaskStatusOpen, TaskStatusAssigned, TaskStatusInProgress, TaskStatusSubmitted}
+	states := []string{
+		domaintask.StatusOpen.String(),
+		domaintask.StatusAssigned.String(),
+		domaintask.StatusInProgress.String(),
+		domaintask.StatusSubmitted.String(),
+	}
 	for i, startStatus := range states {
 		taskID := fmt.Sprintf("task_cancel_%d", i)
-		_, err := repo.Create(context.Background(), model.Task{
-			ID:        taskID,
-			Title:     "Active Task " + startStatus,
-			Status:    startStatus,
-			CreatorID: "u_owner_001",
-			CreatedAt: now,
-			UpdatedAt: now,
-		})
+		_, err := repo.Create(context.Background(), domaintask.Restore(
+			taskID,
+			"Active Task "+startStatus,
+			"test",
+			domaintask.ParseStatus(startStatus),
+			"u_owner_001",
+			"",
+			now,
+			now,
+			nil,
+			"",
+		))
 		if err != nil {
 			t.Fatalf("seed task: %v", err)
 		}
@@ -679,8 +734,8 @@ func TestCancelTask_OwnerCanCancelActiveTasks(t *testing.T) {
 			t.Fatalf("CancelTask from %s returned error: %v", startStatus, err)
 		}
 
-		if updatedTask.Status != TaskStatusCancelled {
-			t.Fatalf("expected status %q, got %q", TaskStatusCancelled, updatedTask.Status)
+		if updatedTask.Status != domaintask.StatusCancelled.String() {
+			t.Fatalf("expected status %q, got %q", domaintask.StatusCancelled.String(), updatedTask.Status)
 		}
 		if record.Type != model.TaskRecordTypeCancel {
 			t.Fatalf("expected record type %q, got %q", model.TaskRecordTypeCancel, record.Type)
@@ -696,14 +751,18 @@ func TestCancelTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_cancel_err",
-		Title:     "Cancel Error",
-		Status:    TaskStatusOpen,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_cancel_err",
+		"Cancel Error",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -719,14 +778,18 @@ func TestCancelTask_RejectsCompletedTask(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_cancel_comp",
-		Title:     "Cancel Completed",
-		Status:    TaskStatusCompleted,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_cancel_comp",
+		"Cancel Completed",
+		"test",
+		domaintask.StatusCompleted,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -744,15 +807,18 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	now := time.Now().UTC()
 
 	// 1. Reactivate task with no assignee (should go to open)
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:         "task_react_open",
-		Title:      "React Open",
-		Status:     TaskStatusCancelled,
-		CreatorID:  "u_owner_001",
-		AssigneeID: "",
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_react_open",
+		"React Open",
+		"test",
+		domaintask.StatusCancelled,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -761,7 +827,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	if err != nil {
 		t.Fatalf("ReactivateTask open: %v", err)
 	}
-	if task1.Status != TaskStatusOpen {
+	if task1.Status != domaintask.StatusOpen.String() {
 		t.Fatalf("expected status open, got %q", task1.Status)
 	}
 	if rec1.Type != model.TaskRecordTypeReactivate {
@@ -769,15 +835,18 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	}
 
 	// 2. Reactivate task with assignee (should go to assigned)
-	_, err = repo.Create(context.Background(), model.Task{
-		ID:         "task_react_assign",
-		Title:      "React Assign",
-		Status:     TaskStatusCompleted,
-		CreatorID:  "u_owner_001",
-		AssigneeID: "u_worker_001",
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	})
+	_, err = repo.Create(context.Background(), domaintask.Restore(
+		"task_react_assign",
+		"React Assign",
+		"test",
+		domaintask.StatusCompleted,
+		"u_owner_001",
+		"u_worker_001",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -786,7 +855,7 @@ func TestReactivateTask_OwnerCanReactivateCancelledOrCompletedTask(t *testing.T)
 	if err != nil {
 		t.Fatalf("ReactivateTask assigned: %v", err)
 	}
-	if task2.Status != TaskStatusAssigned {
+	if task2.Status != domaintask.StatusAssigned.String() {
 		t.Fatalf("expected status assigned, got %q", task2.Status)
 	}
 	if rec2.Content != "reactivating assigned task" {
@@ -799,14 +868,18 @@ func TestReactivateTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_react_err",
-		Title:     "React Error",
-		Status:    TaskStatusCancelled,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_react_err",
+		"React Error",
+		"test",
+		domaintask.StatusCancelled,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -823,25 +896,30 @@ func TestDeleteTask_OwnerSoftDeletesTaskAndRetainsRecords(t *testing.T) {
 	svc := NewTaskService(repo, recordRepo, repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_del",
-		Title:     "To Delete",
-		Status:    TaskStatusOpen,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_del",
+		"To Delete",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	_, err = recordRepo.Create(context.Background(), model.TaskRecord{
-		TaskID:    "task_del",
-		AuthorID:  "u_owner_001",
-		Type:      model.TaskRecordTypeSubmit,
-		Content:   "record content",
-		CreatedAt: now,
-	})
+	_, err = recordRepo.Create(context.Background(), domainrecord.Restore(
+		"",
+		"task_del",
+		"u_owner_001",
+		domainrecord.TypeSubmit,
+		"record content",
+		now,
+	))
 	if err != nil {
 		t.Fatalf("seed record: %v", err)
 	}
@@ -862,14 +940,14 @@ func TestDeleteTask_OwnerSoftDeletesTaskAndRetainsRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByIDIncludingDeleted returned error: %v", err)
 	}
-	if deletedTask.DeletedAt == nil {
+	if deletedTask.DeletedAt() == nil {
 		t.Fatalf("expected deleted_at to be populated")
 	}
-	if deletedTask.DeletedBy != "u_owner_001" {
-		t.Fatalf("expected deleted_by to be populated, got %q", deletedTask.DeletedBy)
+	if deletedTask.DeletedBy() != "u_owner_001" {
+		t.Fatalf("expected deleted_by to be populated, got %q", deletedTask.DeletedBy())
 	}
-	if deletedTask.Status != TaskStatusDeleted {
-		t.Fatalf("expected deleted status, got %q", deletedTask.Status)
+	if deletedTask.Status() != domaintask.StatusDeleted {
+		t.Fatalf("expected deleted status, got %q", deletedTask.Status())
 	}
 
 	// Verify records are retained for auditability
@@ -887,14 +965,18 @@ func TestDeleteTask_RejectsNonOwner(t *testing.T) {
 	svc := NewTaskService(repo, repository.NewMemoryTaskRecordRepository(), repository.NewMemoryAuditLogRepository())
 	now := time.Now().UTC()
 
-	_, err := repo.Create(context.Background(), model.Task{
-		ID:        "task_del_err",
-		Title:     "Delete Error",
-		Status:    TaskStatusOpen,
-		CreatorID: "u_owner_001",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_del_err",
+		"Delete Error",
+		"test",
+		domaintask.StatusOpen,
+		"u_owner_001",
+		"",
+		now,
+		now,
+		nil,
+		"",
+	))
 	if err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
@@ -1034,8 +1116,8 @@ func TestTaskService_AuditLogsAreCreatedThroughoutLifecycle(t *testing.T) {
 	if len(records) != 12 {
 		t.Fatalf("expected 12 audit logs, got %d", len(records))
 	}
-	if records[11].Action != model.AuditActionDeleted {
-		t.Fatalf("expected final audit action %q, got %q", model.AuditActionDeleted, records[11].Action)
+	if records[11].Action().String() != model.AuditActionDeleted {
+		t.Fatalf("expected final audit action %q, got %q", model.AuditActionDeleted, records[11].Action().String())
 	}
 }
 
@@ -1043,8 +1125,8 @@ type mockFailingAuditLogRepository struct {
 	repository.AuditLogRepository
 }
 
-func (m *mockFailingAuditLogRepository) Create(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
-	return model.AuditLog{}, errors.New("simulated audit log write failure")
+func (m *mockFailingAuditLogRepository) Create(ctx context.Context, log domainaudit.Log) (domainaudit.Log, error) {
+	return domainaudit.Log{}, errors.New("simulated audit log write failure")
 }
 
 func TestTaskService_TransactionRollbackOnFailure(t *testing.T) {
