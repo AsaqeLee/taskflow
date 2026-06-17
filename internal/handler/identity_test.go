@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/service"
+	"github.com/AsaqeLee/taskflow/internal/testutil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -418,6 +420,88 @@ func TestIdentityHandler_ListUsers(t *testing.T) {
 	}
 	if len(workerList.Users) != 1 || workerList.Users[0].ID != "u_alice_list" {
 		t.Fatalf("expected worker to see only self, got %+v", workerList.Users)
+	}
+}
+
+func TestIdentityHandler_ListUsers_ActiveFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
+	h := NewIdentityHandler(
+		identityService,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+		true,
+	)
+
+	if _, err := identityService.Register(context.Background(), "u_owner_active", "Owner", "owner", "strong-pass-123"); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	if _, err := identityService.Register(context.Background(), "u_active_human", "Active", "human", "strong-pass-123"); err != nil {
+		t.Fatalf("seed active human: %v", err)
+	}
+
+	disabled := testutil.SeedAccount(t, userRepo, "u_disabled_human", "Disabled", "human", "")
+	actor := domainuser.NewActor("u_owner_active")
+	if err := disabled.Disable(actor, time.Now().UTC()); err != nil {
+		t.Fatalf("disable account: %v", err)
+	}
+	if _, err := userRepo.Update(context.Background(), disabled); err != nil {
+		t.Fatalf("persist disabled account: %v", err)
+	}
+
+	r := gin.New()
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	authenticated.GET("/users", h.ListUsers)
+
+	req := httptest.NewRequest(http.MethodGet, "/users?active=true", nil)
+	req.Header.Set("X-User-ID", "u_owner_active")
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Users []struct {
+			ID     string `json:"id"`
+			Active bool   `json:"active"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	for _, user := range body.Users {
+		if !user.Active {
+			t.Fatalf("expected only active users, got inactive %s", user.ID)
+		}
+	}
+	for _, id := range []string{"u_owner_active", "u_active_human"} {
+		found := false
+		for _, user := range body.Users {
+			if user.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected active user %s in response", id)
+		}
+	}
+	for _, user := range body.Users {
+		if user.ID == "u_disabled_human" {
+			t.Fatal("disabled user should be filtered out")
+		}
 	}
 }
 

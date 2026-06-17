@@ -7,6 +7,34 @@ on:
   pull_request:
 
 jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -91,8 +119,14 @@ jobs:
           TASKFLOW_MONGO_TEST_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0
         run: go test -count=1 -p 1 ./internal/migrations ./internal/middleware ./internal/handler ./internal/repository ./internal/service
 
+      - name: Frontend production bundle smoke
+        run: bash scripts/web_build_smoke.sh
+
       - name: Compose build and smoke
         run: bash scripts/compose_smoke.sh
+
+      - name: Intranet acceptance (incremental)
+        run: bash scripts/intranet_acceptance.sh
 
       - name: Dump compose logs on failure
         if: failure()

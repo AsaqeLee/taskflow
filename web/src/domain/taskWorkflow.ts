@@ -54,6 +54,10 @@ export function actionNeedsConfirmation(action: TaskAction): boolean {
   return action === 'delete'
 }
 
+export function shouldOpenActionDialog(action: TaskAction): boolean {
+  return actionNeedsContent(action) || actionNeedsConfirmation(action)
+}
+
 export function actionLabel(action: TaskAction): string {
   const labels: Record<TaskAction, string> = {
     assign: '分配',

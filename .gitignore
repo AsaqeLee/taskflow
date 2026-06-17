@@ -20,6 +20,7 @@ scripts/*
 !scripts/backup_mongo.sh
 !scripts/bootstrap_users.sh
 !scripts/intranet_acceptance.sh
+!scripts/web_build_smoke.sh
 !scripts/perf_smoke.js
 !scripts/restore_mongo.sh
 !scripts/rollback_image.sh

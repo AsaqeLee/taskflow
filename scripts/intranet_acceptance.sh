@@ -67,7 +67,27 @@ OWNER_TOKEN="$(json_field /tmp/tf_owner_login.json access_token)"
 ALICE_TOKEN="$(json_field /tmp/tf_alice_login.json access_token)"
 curl -sf -H "Authorization: Bearer ${OWNER_TOKEN}" "${BASE_URL}/me" >/dev/null
 
-log "P3-13: owner + assignee full workflow"
+log "P1: public register is closed"
+ANON_REG_STATUS="$(curl -sS -o /tmp/tf_anon_reg.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/users" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_should_fail","name":"Anon","role":"human","password":"strong-pass-123"}')"
+[[ "$ANON_REG_STATUS" == "401" ]] || fail "anonymous register expected 401, got ${ANON_REG_STATUS}"
+
+log "P1: owner can list active users"
+USERS_STATUS="$(curl -sS -o /tmp/tf_users.json -w '%{http_code}' \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  "${BASE_URL}/users?active=true")"
+[[ "$USERS_STATUS" == "200" ]] || fail "GET /users expected 200, got ${USERS_STATUS}"
+python3 - <<'PY' /tmp/tf_users.json "${ASSIGNEE_ID}"
+import json, sys
+users = json.load(open(sys.argv[1], encoding="utf-8"))["users"]
+ids = {u["id"] for u in users}
+if sys.argv[2] not in ids:
+    raise SystemExit(f"assignee {sys.argv[2]} not in users list")
+PY
+
+log "P3-13: owner + assignee full workflow (incl. reject → restart)"
 TASK_STATUS="$(curl -sS -o /tmp/tf_task_create.json -w '%{http_code}' \
   -X POST "${BASE_URL}/tasks" \
   -H "Authorization: Bearer ${OWNER_TOKEN}" \
@@ -87,7 +107,20 @@ curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/start" \
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/submit" \
   -H "Authorization: Bearer ${ALICE_TOKEN}" \
   -H 'Content-Type: application/json' \
-  -d '{"content":"done"}' >/dev/null
+  -d '{"content":"first submit"}' >/dev/null
+
+curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/reject" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"please revise"}' >/dev/null
+
+curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/start" \
+  -H "Authorization: Bearer ${ALICE_TOKEN}" >/dev/null
+
+curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/submit" \
+  -H "Authorization: Bearer ${ALICE_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"revised submit"}' >/dev/null
 
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/approve" \
   -H "Authorization: Bearer ${OWNER_TOKEN}" \

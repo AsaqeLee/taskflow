@@ -1,0 +1,138 @@
+# TaskFlow 内网首次上线 Runbook
+
+面向第一次在内网主机部署 TaskFlow 的运维/开发同事。预计耗时 **30–60 分钟**。
+
+## 前置条件
+
+- Docker + Docker Compose 可用
+- 内网主机可访问（建议仅内网网段）
+- 已克隆本仓库
+
+## 步骤 1：准备环境变量
+
+```bash
+cp .env.intranet.example .env
+```
+
+编辑 `.env`，至少修改：
+
+```env
+JWT_SECRET=<openssl rand -hex 32 的输出>
+APP_VERSION=intranet-1.0.0
+```
+
+生产若前后端分离，设置：
+
+```env
+CORS_ALLOWED_ORIGINS=https://taskflow.internal,http://taskflow.internal:5173
+```
+
+## 步骤 2：启动栈
+
+```bash
+docker compose up -d --build
+```
+
+启动顺序：`mongo` → `mongo-init` → `migrate` → `bootstrap` → `taskflow`。
+
+确认健康：
+
+```bash
+curl -sf http://127.0.0.1:8080/readyz
+docker compose ps
+```
+
+## 步骤 3：验证首批用户
+
+默认账号来自 `scripts/users.example.json`：
+
+| ID | 角色 | 默认密码 |
+|----|------|----------|
+| `u_owner` | owner | `change-me-owner-123` |
+| `u_alice` | human | `change-me-alice-123` |
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"u_owner","password":"change-me-owner-123"}' | head
+```
+
+**首次登录后请修改密码**（MVP 期无 UI，可由 owner 禁用后重建）。
+
+## 步骤 4：自动化验收
+
+```bash
+# 不删 volume 的增量验收
+./scripts/intranet_acceptance.sh
+
+# 完整冷启动验收（会 docker compose down -v）
+COLD_START=1 ./scripts/intranet_acceptance.sh
+```
+
+详见 [ACCEPTANCE_TESTING.md](./ACCEPTANCE_TESTING.md)。
+
+## 步骤 5：启动前端（开发/演示）
+
+```bash
+cd web && npm ci && npm run dev
+# 浏览器打开 http://localhost:5173
+```
+
+生产静态资源：`cd web && npm run build`，将 `web/dist` 交由 Nginx 同域托管或反代。
+
+## 步骤 6：配置备份
+
+```bash
+mkdir -p backups
+docker compose exec -T mongo mongodump \
+  --uri='mongodb://127.0.0.1:27017/?replicaSet=rs0' \
+  --db=taskflow --archive --gzip > backups/taskflow-$(date +%Y%m%d).gz
+```
+
+演练记录模板：`reports/backup-restore-evidence-template.md`。
+
+## 步骤 7：HTTPS 与反代（推荐）
+
+最小 Nginx 思路：
+
+```text
+https://taskflow.internal/
+  /api/*  → proxy_pass http://127.0.0.1:8080/
+  /*      → root /var/www/taskflow/web/dist
+```
+
+同域部署可省略 CORS。防火墙仅放行内网到 443。
+
+## 升级与回滚
+
+**升级：**
+
+```bash
+git pull
+docker compose build taskflow
+docker compose up -d migrate bootstrap taskflow
+./scripts/intranet_acceptance.sh
+```
+
+**回滚：**
+
+```bash
+# 使用上一版镜像 tag（部署时建议打版本 tag）
+docker tag taskflow-taskflow:previous taskflow-taskflow:latest
+docker compose up -d taskflow
+```
+
+更完整的运维条目见 [INTRANET_OPS.md](./INTRANET_OPS.md)。
+
+## 故障排查入口
+
+| 现象 | 第一步 |
+|------|--------|
+| `/readyz` 非 200 | `docker compose logs taskflow mongo` |
+| 登录 401 | 检查 bootstrap 是否成功、`docker compose logs bootstrap` |
+| CORS 错误 | 检查 `CORS_ALLOWED_ORIGINS` 与浏览器 origin |
+| 5xx | 响应 JSON 中的 `request_id` → 对照 taskflow 日志 |
+
+## MVP 范围提醒
+
+本阶段 **不包含**：用户管理 UI、密码重置页、公开注册页、任务分页搜索。见 `reports/mobile-acceptance-checklist.md`。
