@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/observability"
 	"github.com/AsaqeLee/taskflow/internal/repository"
@@ -30,6 +32,7 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		true,
 		true,
 	)
 
@@ -142,6 +145,7 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
 		true,
+		true,
 	)
 
 	r := gin.New()
@@ -247,6 +251,7 @@ func TestIdentityHandler_RefreshReuseAndSessionRevocation(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
 		true,
+		true,
 	)
 
 	r := gin.New()
@@ -336,4 +341,155 @@ func TestIdentityHandler_RefreshReuseAndSessionRevocation(t *testing.T) {
 	if refreshAfterRevokeResp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected revoked refresh token to fail, got %d body=%s", refreshAfterRevokeResp.Code, refreshAfterRevokeResp.Body.String())
 	}
+}
+
+func TestIdentityHandler_ListUsers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, true)
+	h := NewIdentityHandler(
+		identityService,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		true,
+		true,
+	)
+
+	r := gin.New()
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	authenticated.GET("/users", h.ListUsers)
+
+	if _, err := identityService.Register(context.Background(), "u_owner_list", "Owner", "owner", "strong-pass-123"); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+
+	_, err := identityService.Register(context.Background(), "u_alice_list", "Alice", "human", "strong-pass-123")
+	if err != nil {
+		t.Fatalf("seed alice: %v", err)
+	}
+	_, err = identityService.Register(context.Background(), "u_bob_list", "Bob", "human", "strong-pass-123")
+	if err != nil {
+		t.Fatalf("seed bob: %v", err)
+	}
+
+	ownerListReq := httptest.NewRequest(http.MethodGet, "/users", nil)
+	ownerListReq.Header.Set("X-User-ID", "u_owner_list")
+	ownerListResp := httptest.NewRecorder()
+	r.ServeHTTP(ownerListResp, ownerListReq)
+	if ownerListResp.Code != http.StatusOK {
+		t.Fatalf("expected owner list 200, got %d body=%s", ownerListResp.Code, ownerListResp.Body.String())
+	}
+
+	var ownerList struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(ownerListResp.Body.Bytes(), &ownerList); err != nil {
+		t.Fatalf("decode owner list: %v", err)
+	}
+	if len(ownerList.Users) < 3 {
+		t.Fatalf("expected owner to see all users, got %d", len(ownerList.Users))
+	}
+
+	workerListReq := httptest.NewRequest(http.MethodGet, "/users", nil)
+	workerListReq.Header.Set("X-User-ID", "u_alice_list")
+	workerListResp := httptest.NewRecorder()
+	r.ServeHTTP(workerListResp, workerListReq)
+	if workerListResp.Code != http.StatusOK {
+		t.Fatalf("expected worker list 200, got %d", workerListResp.Code)
+	}
+
+	var workerList struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(workerListResp.Body.Bytes(), &workerList); err != nil {
+		t.Fatalf("decode worker list: %v", err)
+	}
+	if len(workerList.Users) != 1 || workerList.Users[0].ID != "u_alice_list" {
+		t.Fatalf("expected worker to see only self, got %+v", workerList.Users)
+	}
+}
+
+func TestIdentityHandler_OwnerOnlyRegister(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, false)
+	h := NewIdentityHandler(
+		identityService,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		false,
+		false,
+	)
+
+	r := gin.New()
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", false))
+	authenticated.POST("/users", h.Register)
+
+	_, err := identityService.Register(context.Background(), "u_owner_gate", "Owner", "owner", "strong-pass-123")
+	if err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	_, err = identityService.Register(context.Background(), "u_human_gate", "Human", "human", "strong-pass-123")
+	if err != nil {
+		t.Fatalf("seed human: %v", err)
+	}
+
+	anonReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_new_001","name":"New","role":"human","password":"strong-pass-123"}`))
+	anonReq.Header.Set("Content-Type", "application/json")
+	anonResp := httptest.NewRecorder()
+	r.ServeHTTP(anonResp, anonReq)
+	if anonResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected anonymous register 401, got %d", anonResp.Code)
+	}
+
+	humanReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_new_002","name":"New2","role":"human","password":"strong-pass-123"}`))
+	humanReq.Header.Set("Content-Type", "application/json")
+	humanReq.Header.Set("Authorization", "Bearer "+mustLoginToken(t, identityService, "u_human_gate", "strong-pass-123"))
+	humanResp := httptest.NewRecorder()
+	r.ServeHTTP(humanResp, humanReq)
+	if humanResp.Code != http.StatusForbidden {
+		t.Fatalf("expected non-owner register 403, got %d body=%s", humanResp.Code, humanResp.Body.String())
+	}
+
+	ownerReq := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"id":"u_new_003","name":"New3","role":"human","password":"strong-pass-123"}`))
+	ownerReq.Header.Set("Content-Type", "application/json")
+	ownerReq.Header.Set("Authorization", "Bearer "+mustLoginToken(t, identityService, "u_owner_gate", "strong-pass-123"))
+	ownerResp := httptest.NewRecorder()
+	r.ServeHTTP(ownerResp, ownerReq)
+	if ownerResp.Code != http.StatusCreated {
+		t.Fatalf("expected owner register 201, got %d body=%s", ownerResp.Code, ownerResp.Body.String())
+	}
+}
+
+func mustLoginToken(t *testing.T, identityService *service.IdentityService, id, password string) string {
+	t.Helper()
+	user, err := identityService.Authenticate(context.Background(), id, password)
+	if err != nil {
+		t.Fatalf("authenticate %s: %v", id, err)
+	}
+	token, err := auth.GenerateToken(user.ID, user.Role, "test_secret", time.Hour)
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	return token
 }

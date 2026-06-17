@@ -23,6 +23,9 @@ func New(
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
+	}
 	r.Use(middleware.Tracing(tracer))
 	r.Use(middleware.RequestContext())
 	r.Use(middleware.Timeout(cfg.RequestTimeout))
@@ -40,13 +43,19 @@ func New(
 	r.POST("/auth/refresh", identityHandler.Refresh)
 	r.POST("/auth/password-reset/request", identityHandler.RequestPasswordReset)
 	r.POST("/auth/password-reset/confirm", identityHandler.ConfirmPasswordReset)
-	r.POST("/users", identityHandler.Register)
+	if cfg.AllowPublicRegister {
+		r.POST("/users", identityHandler.Register)
+	}
 
 	// Authenticated routes
 	authenticated := r.Group("/")
 	authenticated.Use(middleware.UserAuth(userRepo, cfg.JWTSecret, cfg.DevMode))
 
 	authenticated.GET("/me", identityHandler.Me)
+	authenticated.GET("/users", identityHandler.ListUsers)
+	if !cfg.AllowPublicRegister {
+		authenticated.POST("/users", identityHandler.Register)
+	}
 	authenticated.POST("/users/:id/disable", identityHandler.DisableAccount)
 	authenticated.POST("/users/:id/revoke-sessions", identityHandler.RevokeSessions)
 	authenticated.POST("/tasks", taskHandler.Create)

@@ -169,6 +169,33 @@ func (r *MongoUserRepository) Update(ctx context.Context, account domainuser.Acc
 	return account, nil
 }
 
+func (r *MongoUserRepository) List(ctx context.Context, activeOnly bool) ([]domainuser.Account, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
+	defer cancel()
+
+	filter := bson.M{}
+	if activeOnly {
+		filter["active"] = true
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var docs []userDocument
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+
+	result := make([]domainuser.Account, 0, len(docs))
+	for _, doc := range docs {
+		result = append(result, userDocumentToAccount(doc))
+	}
+	return result, nil
+}
+
 func accountToDocument(account domainuser.Account) userDocument {
 	return userDocument{
 		ID:           account.ID(),

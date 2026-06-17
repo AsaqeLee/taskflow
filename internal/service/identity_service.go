@@ -22,6 +22,7 @@ var (
 	ErrForbiddenSessionRevoke  = errors.New("current user cannot revoke this account's sessions")
 	ErrUserNotFound            = ports.ErrUserNotFound
 	ErrUserAlreadyExists       = ports.ErrUserAlreadyExists
+	ErrForbiddenUserCreate     = domainuser.ErrForbiddenUserCreate
 )
 
 type IdentityService struct {
@@ -325,6 +326,31 @@ func (s *IdentityService) RevokeSessions(ctx context.Context, actor model.User, 
 		return err
 	}
 	return s.identityRepo.RevokeUserRefreshTokens(ctx, targetUserID, time.Now().UTC())
+}
+
+func (s *IdentityService) ListUsers(ctx context.Context, actor model.User, activeOnly bool) ([]model.User, error) {
+	actorRole, err := domainuser.ParseRole(actor.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	if actorRole.IsOwner() {
+		accounts, err := s.users.List(ctx, activeOnly)
+		if err != nil {
+			return nil, err
+		}
+		users := make([]model.User, len(accounts))
+		for i, account := range accounts {
+			users[i] = model.UserFromAccount(account)
+		}
+		return users, nil
+	}
+
+	self, err := s.FindAccount(ctx, actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	return []model.User{self}, nil
 }
 
 func (s *IdentityService) FindAccount(ctx context.Context, id string) (model.User, error) {

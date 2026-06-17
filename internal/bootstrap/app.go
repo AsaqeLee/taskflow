@@ -76,6 +76,7 @@ func NewApp(cfg config.Config) (*App, error) {
 		passwordResetRateLimiter,
 		metrics,
 		cfg.DevMode,
+		cfg.AllowPublicRegister,
 	)
 	systemHandler := handler.NewSystemHandler(db, metrics, cfg.AppVersion)
 

@@ -21,4 +21,5 @@ type UserRepository interface {
 	UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (domainuser.Account, error)
 	Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (domainuser.Account, error)
 	Update(ctx context.Context, account domainuser.Account) (domainuser.Account, error)
+	List(ctx context.Context, activeOnly bool) ([]domainuser.Account, error)
 }

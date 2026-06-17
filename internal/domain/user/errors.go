@@ -8,5 +8,6 @@ var (
 	ErrInvalidRole      = errors.New("user role is invalid")
 	ErrAccountDisabled  = errors.New("account is disabled")
 	ErrForbiddenDisable = errors.New("current user cannot disable this account")
-	ErrAlreadyDisabled  = errors.New("account is already disabled")
+	ErrAlreadyDisabled   = errors.New("account is already disabled")
+	ErrForbiddenUserCreate = errors.New("only owners can create users")
 )

@@ -63,6 +63,8 @@ type Config struct {
 	TracingInsecure                bool
 	TracingServiceName             string `validate:"required"`
 	AppVersion                     string `validate:"required"`
+	CORSAllowedOrigins             []string
+	AllowPublicRegister            bool
 }
 
 func Load() Config {
@@ -105,6 +107,14 @@ func Load() Config {
 	tracingEndpoint := strings.TrimSpace(getenv("TRACING_ENDPOINT", ""))
 	tracingServiceName := strings.TrimSpace(getenv("TRACING_SERVICE_NAME", "taskflow"))
 	appVersion := getenv("APP_VERSION", "dev")
+	allowPublicRegister := devMode
+	if raw := strings.TrimSpace(os.Getenv("ALLOW_PUBLIC_REGISTER")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			log.Fatalf("Invalid ALLOW_PUBLIC_REGISTER configuration: %v", err)
+		}
+		allowPublicRegister = parsed
+	}
 
 	cfg := Config{
 		Port:                           port,
@@ -133,6 +143,8 @@ func Load() Config {
 		TracingInsecure:                tracingInsecure,
 		TracingServiceName:             tracingServiceName,
 		AppVersion:                     appVersion,
+		AllowPublicRegister:            allowPublicRegister,
+		CORSAllowedOrigins:             parseCSVOrigins(getenv("CORS_ALLOWED_ORIGINS", "")),
 	}
 
 	validate := validator.New()
@@ -140,7 +152,31 @@ func Load() Config {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
+	if !cfg.DevMode {
+		if len(cfg.JWTSecret) < 32 {
+			log.Fatal("Invalid configuration: JWT_SECRET must be at least 32 characters when DEV_MODE=false")
+		}
+	}
+	if cfg.DevMode && cfg.AppVersion != "dev" && !strings.HasPrefix(cfg.AppVersion, "compose-") {
+		log.Printf("WARNING: DEV_MODE=true with APP_VERSION=%s — do not use in intranet/production deployments", cfg.AppVersion)
+	}
+
 	return cfg
+}
+
+func parseCSVOrigins(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			origins = append(origins, part)
+		}
+	}
+	return origins
 }
 
 func getenv(key, fallback string) string {

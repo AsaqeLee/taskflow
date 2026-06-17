@@ -25,6 +25,7 @@ type IdentityHandler struct {
 	passwordResetRateLimiter middleware.RateLimiter
 	metrics                  *observability.Metrics
 	devMode                  bool
+	allowPublicRegister      bool
 }
 
 type publicUser struct {
@@ -48,6 +49,7 @@ func NewIdentityHandler(
 	passwordResetRateLimiter middleware.RateLimiter,
 	metrics *observability.Metrics,
 	devMode bool,
+	allowPublicRegister bool,
 ) *IdentityHandler {
 	return &IdentityHandler{
 		identityService:          identityService,
@@ -59,6 +61,7 @@ func NewIdentityHandler(
 		passwordResetRateLimiter: passwordResetRateLimiter,
 		metrics:                  metrics,
 		devMode:                  devMode,
+		allowPublicRegister:      allowPublicRegister,
 	}
 }
 
@@ -110,7 +113,43 @@ const (
 	identityFlowRevokeSessions       = "revoke_sessions"
 )
 
+func (h *IdentityHandler) ListUsers(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	activeOnly := c.Query("active") == "true"
+	users, err := h.identityService.ListUsers(c.Request.Context(), currentUser, activeOnly)
+	if err != nil {
+		httpapi.WriteError(c, http.StatusInternalServerError, "users_list_failed", "failed to list users")
+		return
+	}
+
+	response := make([]publicUser, len(users))
+	for i, user := range users {
+		response[i] = sanitizeUser(user)
+	}
+	c.JSON(http.StatusOK, gin.H{"users": response})
+}
+
 func (h *IdentityHandler) Register(c *gin.Context) {
+	if !h.allowPublicRegister {
+		currentUser, ok := middleware.CurrentUser(c)
+		if !ok {
+			h.recordIdentityEvent(identityFlowRegister, "unauthorized")
+			httpapi.Unauthorized(c, "unauthorized", "authentication required to create users")
+			return
+		}
+		actorRole, err := domainuser.ParseRole(currentUser.Role)
+		if err != nil || !actorRole.IsOwner() {
+			h.recordIdentityEvent(identityFlowRegister, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can create users")
+			return
+		}
+	}
+
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.recordIdentityEvent(identityFlowRegister, "invalid_request")
@@ -139,9 +178,15 @@ func (h *IdentityHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if h.writeSessionResponse(c, http.StatusCreated, created, created.Token) {
-		h.recordIdentityEvent(identityFlowRegister, "success")
+	if h.allowPublicRegister {
+		if h.writeSessionResponse(c, http.StatusCreated, created, created.Token) {
+			h.recordIdentityEvent(identityFlowRegister, "success")
+		}
+		return
 	}
+
+	h.recordIdentityEvent(identityFlowRegister, "success")
+	c.JSON(http.StatusCreated, gin.H{"user": sanitizeUser(created)})
 }
 
 func (h *IdentityHandler) Login(c *gin.Context) {

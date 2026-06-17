@@ -60,6 +60,7 @@ func TestIdentityHandler_MongoRefreshReuseResetAndSessionRevocation(t *testing.T
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		metrics,
 		true,
+		true,
 	)
 
 	router := gin.New()

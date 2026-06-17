@@ -1,0 +1,20 @@
+[
+  {
+    "id": "u_owner",
+    "name": "Team Owner",
+    "role": "owner",
+    "password": "change-me-owner-123"
+  },
+  {
+    "id": "u_alice",
+    "name": "Alice",
+    "role": "human",
+    "password": "change-me-alice-123"
+  },
+  {
+    "id": "u_bob",
+    "name": "Bob",
+    "role": "human",
+    "password": "change-me-bob-123"
+  }
+]

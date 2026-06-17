@@ -60,10 +60,11 @@ services:
     environment:
       PORT: "8080"
       DEV_MODE: "false"
+      ALLOW_PUBLIC_REGISTER: "false"
       TASK_REPOSITORY_DRIVER: mongo
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       MONGODB_DATABASE: taskflow
-      JWT_SECRET: compose-local-secret
+      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
       APP_VERSION: compose-local
       LOG_LEVEL: info
       ACCESS_TOKEN_TTL: 2h
@@ -85,6 +86,31 @@ services:
       TRACING_INSECURE: "true"
       TRACING_SERVICE_NAME: taskflow
 
+  bootstrap:
+    build:
+      context: .
+      args:
+        APP_VERSION: compose-local
+    restart: "no"
+    entrypoint: ["/usr/local/bin/taskflow-bootstrap"]
+    command: ["-users", "/bootstrap/users.json"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./scripts/users.example.json:/bootstrap/users.json:ro
+    environment:
+      PORT: "8080"
+      DEV_MODE: "false"
+      ALLOW_PUBLIC_REGISTER: "false"
+      TASK_REPOSITORY_DRIVER: mongo
+      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
+      MONGODB_DATABASE: taskflow
+      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
+      APP_VERSION: compose-local
+      LOG_LEVEL: info
+      USERS_FILE: /bootstrap/users.json
+
   taskflow:
     build:
       context: .
@@ -98,15 +124,19 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
     environment:
       PORT: "8080"
       DEV_MODE: "false"
+      ALLOW_PUBLIC_REGISTER: "false"
       TASK_REPOSITORY_DRIVER: mongo
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       MONGODB_DATABASE: taskflow
-      JWT_SECRET: compose-local-secret
+      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
       APP_VERSION: compose-local
       LOG_LEVEL: info
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       ACCESS_TOKEN_TTL: 2h
       REFRESH_TOKEN_TTL: 168h
       PASSWORD_RESET_TTL: 1h

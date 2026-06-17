@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -140,4 +141,22 @@ func (r *MemoryUserRepository) Update(ctx context.Context, account domainuser.Ac
 
 	r.users[account.ID()] = account
 	return account, nil
+}
+
+func (r *MemoryUserRepository) List(ctx context.Context, activeOnly bool) ([]domainuser.Account, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]domainuser.Account, 0, len(r.users))
+	for _, account := range r.users {
+		if activeOnly && !account.IsActive() {
+			continue
+		}
+		result = append(result, account)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
+	})
+	return result, nil
 }

@@ -88,6 +88,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
 		true,
+		true,
 	)
 
 	r := gin.New()
