@@ -151,6 +151,10 @@ Rollback remains low risk because deletes are soft deletes and the current migra
 - Security baseline report: `./reports/security-baseline-2026-06-12.md`
 - Performance baseline report: `./reports/performance-baseline-2026-06-12.md`
 
+## Intranet MVP Rollout
+
+For a small-team internal deployment checklist (bootstrap users, CORS, user list API, minimal frontend, backup), see [`INTRANET_MVP.md`](./INTRANET_MVP.md).
+
 ## Current Limitations
 
 - Refresh tokens are persisted and rotated, but there is no device/session management UI.

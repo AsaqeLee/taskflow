@@ -163,7 +163,7 @@ docker compose up -d --build
 bash scripts/compose_smoke.sh
 ```
 
-For rollout discipline and migration expectations, see `DEPLOYMENT.md` and `MIGRATIONS.md`.
+For rollout discipline and migration expectations, see `DEPLOYMENT.md` and `MIGRATIONS.md`. For a small-team intranet MVP checklist, see [`INTRANET_MVP.md`](./INTRANET_MVP.md).
 </details>
 
 ---
