@@ -103,6 +103,38 @@ jobs:
       - name: Validate compose config
         run: docker compose config >/dev/null
 
+      - name: Validate production env guardrails
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+
+          cat >"$tmpdir/users.production.json" <<'EOF'
+          [
+            {"id":"u_owner","name":"Owner","role":"owner","password":"Owner-Temp-456"},
+            {"id":"u_alice","name":"Alice","role":"human","password":"Alice-Temp-456"}
+          ]
+          EOF
+
+          cat >"$tmpdir/.env.production" <<EOF
+          DEV_MODE=false
+          ALLOW_PUBLIC_REGISTER=false
+          STRICT_PRODUCTION_CONFIG=true
+          TASK_REPOSITORY_DRIVER=mongo
+          MONGODB_URI=mongodb://127.0.0.1:27017/?replicaSet=rs0
+          MONGODB_DATABASE=taskflow_ci_release
+          JWT_SECRET=0123456789abcdef0123456789abcdef
+          APP_VERSION=${GITHUB_SHA::7}
+          BOOTSTRAP_USERS_FILE=$tmpdir/users.production.json
+          CORS_ALLOWED_ORIGINS=https://taskflow.internal
+          EOF
+
+          bash scripts/validate_production_env.sh "$tmpdir/.env.production"
+
+          if bash scripts/validate_production_env.sh .env.intranet.example; then
+            echo ".env.intranet.example should fail strict production validation" >&2
+            exit 1
+          fi
+
       - name: Mongo migrate smoke
         env:
           DEV_MODE: "false"

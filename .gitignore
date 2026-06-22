@@ -27,6 +27,8 @@ scripts/*
 !scripts/security_audit.sh
 !scripts/users.example.json
 !scripts/validate_production_env.sh
+!scripts/release_candidate_check.sh
+!scripts/web_acceptance_smoke.sh
 backups/acceptance/*.gz
 evidence/
 docs/

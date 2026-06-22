@@ -42,6 +42,7 @@ CORS_ALLOWED_ORIGINS=https://taskflow.internal
 
 ```bash
 bash scripts/validate_production_env.sh .env
+bash scripts/release_candidate_check.sh .env
 ```
 
 ## 步骤 2：启动栈

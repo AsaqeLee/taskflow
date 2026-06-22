@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "acceptance:browser": "playwright test e2e/browser-acceptance.spec.ts",
+    "acceptance:responsive": "playwright test e2e/responsive-acceptance.spec.ts",
     "preview": "vite preview"
   },
   "dependencies": {

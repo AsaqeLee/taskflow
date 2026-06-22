@@ -1,9 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
-
-const ownerId = process.env.OWNER_ID ?? 'u_owner'
-const ownerPassword = process.env.OWNER_PASSWORD ?? 'change-me-owner-123'
-const assigneeId = process.env.ASSIGNEE_ID ?? 'u_alice'
-const assigneePassword = process.env.ASSIGNEE_PASSWORD ?? 'change-me-alice-123'
+import { expect, test } from '@playwright/test'
+import { assigneeId, assigneePassword, login, logout, ownerId, ownerPassword } from './helpers'
 
 test('owner and assignee complete the browser workflow', async ({ page }) => {
   const taskTitle = `Browser acceptance ${Date.now()}`
@@ -54,18 +50,3 @@ test('owner and assignee complete the browser workflow', async ({ page }) => {
   await page.getByRole('button', { name: '审计' }).click()
   await expect(page.getByText('task_approved')).toBeVisible()
 })
-
-async function login(page: Page, userId: string, password: string) {
-  await page.goto('/login')
-  await expect(page.getByRole('heading', { name: '登录 TaskFlow' })).toBeVisible()
-  await page.getByLabel('用户 ID').fill(userId)
-  await page.getByLabel('密码').fill(password)
-  await page.getByRole('button', { name: '登录' }).click()
-  await expect(page).toHaveURL(/\/tasks$/)
-  await expect(page.getByRole('heading', { name: '任务列表' })).toBeVisible()
-}
-
-async function logout(page: Page) {
-  await page.getByRole('button', { name: '退出' }).click()
-  await expect(page).toHaveURL(/\/login$/)
-}

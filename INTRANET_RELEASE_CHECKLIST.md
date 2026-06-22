@@ -23,6 +23,7 @@
 ## 2. 发布前检查
 
 ```bash
+bash scripts/release_candidate_check.sh .env
 bash scripts/validate_production_env.sh .env
 go test ./...
 cd web && npm run lint && npm run test && npm run build
@@ -36,6 +37,7 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 - [x] owner 可 `GET /users?active=true`
 - [x] 匿名 `POST /users` 返回 `401`
 - [x] 备份恢复后任务仍可读
+- [ ] `npm --prefix web run acceptance:responsive` 通过，或完成同等移动端人工点验
 
 ## 3. 部署顺序
 

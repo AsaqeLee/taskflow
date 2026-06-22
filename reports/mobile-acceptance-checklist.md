@@ -2,6 +2,12 @@
 
 在宽度 **375px**（iPhone SE）与 **768px**（平板）下各测一遍。使用 `web npm run dev` + 浏览器开发者工具设备模拟。
 
+自动化补充：
+
+- `npm --prefix web run acceptance:responsive`
+- 该脚本覆盖登录、任务列表、新建任务、任务详情、分配区在窄屏下的基础可用性
+- 仍建议保留一次人工 spot-check，确认真实浏览器下的滚动与点击体验
+
 ## 登录 `/login`
 
 - [ ] 表单不横向溢出

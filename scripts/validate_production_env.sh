@@ -76,7 +76,7 @@ esac
 
 bootstrap_path="$(resolve_path "$bootstrap_file")"
 [[ -f "$bootstrap_path" ]] || fail "bootstrap users file not found: $bootstrap_path"
-if rg -n "change-me-" "$bootstrap_path" >/dev/null 2>&1; then
+if grep -n "change-me-" "$bootstrap_path" >/dev/null 2>&1; then
   fail "bootstrap users file still contains change-me-* passwords"
 fi
 
