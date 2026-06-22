@@ -8,6 +8,7 @@
 
 - [x] 已确认发布范围仍为 MVP：不含用户管理 UI、密码重置页、公开注册页、任务分页搜索
 - [x] `.env` 或部署环境已设置 `DEV_MODE=false`（compose 默认 `false`，本地验收已验证）
+- [ ] `STRICT_PRODUCTION_CONFIG=true` 已启用（禁止 `compose-local` / placeholder 生产参数）
 - [ ] `JWT_SECRET` 已替换为强随机值（compose 示例值仅用于本地/CI；**生产部署前必须替换**）
 - [~] `APP_VERSION` 已设置为明确版本号或 commit tag（本地 compose 为 `compose-local`；生产建议设为 git tag 或 commit short SHA）
 - [ ] `BOOTSTRAP_USERS_FILE` 已指向自定义用户文件，且不再使用 `scripts/users.example.json` 默认密码
@@ -22,6 +23,7 @@
 ## 2. 发布前检查
 
 ```bash
+bash scripts/validate_production_env.sh .env
 go test ./...
 cd web && npm run lint && npm run test && npm run build
 bash scripts/compose_smoke.sh
@@ -37,11 +39,12 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 
 ## 3. 部署顺序
 
-1. 准备 `.env`，确认 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`
-2. 执行 `docker compose up -d --build`
-3. 检查 `docker compose ps` 与 `curl -sf http://127.0.0.1:8080/readyz`
-4. 用 bootstrap owner 账号执行一次登录验证
-5. 按需启动前端演示：`cd web && npm run dev`，或托管 `web/dist`
+1. 准备 `.env`，确认 `STRICT_PRODUCTION_CONFIG`、`JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`
+2. 执行 `bash scripts/validate_production_env.sh .env`
+3. 执行 `docker compose up -d --build`
+4. 检查 `docker compose ps` 与 `curl -sf http://127.0.0.1:8080/readyz`
+5. 用 bootstrap owner 账号执行一次登录验证
+6. 按需启动前端演示：`cd web && npm run dev`，或托管 `web/dist`
 
 ## 4. 发布后人工点验
 
@@ -63,12 +66,13 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 |------|------|
 | 日期 | 2026-06-22 |
 | 执行人 | 本地自动化验收（Agent） |
-| Git commit | `27e1b5cf08dd75a0b6a1ec6bfe3bb8797329cff7` |
-| APP_VERSION | `compose-local`（生产部署时改为 tag/SHA） |
+| Git commit | 待本轮生产加固提交后回填（当前基线：`0d7edf3c0cbf7f835da4fa6a2338b61521e29049`） |
+| APP_VERSION | `compose-local`（本地验证值；生产部署时改为 tag/SHA） |
 | 镜像 tag | `taskflow-taskflow:latest`（本地 compose build） |
 | 验收结果 | **通过** — go test、前端 lint/test/build、compose smoke、冷启动 acceptance、Playwright 浏览器全流程 |
-| 备份文件路径 | `backups/acceptance/acceptance-20260622-112027.gz` |
-| 已知风险 | compose 默认值仅用于本地/CI；生产仍需替换 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`；移动端未人工点验；GitHub Actions 最新 run 已通过（2026-06-22） |
+| 备份文件路径 | `backups/acceptance/acceptance-20260622-191906.gz` |
+| 校验记录 | `reports/intranet-release-assessment-2026-06-22.md` |
+| 已知风险 | compose 默认值仅用于本地/CI；生产仍需替换 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS` 并启用 `STRICT_PRODUCTION_CONFIG=true`；移动端未人工点验；GitHub Actions 最新 run 已通过（2026-06-22） |
 
 ## 6. 当前已知非目标
 

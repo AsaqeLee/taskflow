@@ -20,6 +20,7 @@ cp .env.intranet.example .env
 JWT_SECRET=<openssl rand -hex 32 的输出>
 APP_VERSION=<git tag 或 short SHA>
 BOOTSTRAP_USERS_FILE=./scripts/users.intranet.json
+STRICT_PRODUCTION_CONFIG=true
 ```
 
 并先准备首批用户文件：
@@ -36,6 +37,12 @@ CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
 
 `docker-compose.yml` 现在会直接读取这些 `.env` 参数，不再把 `JWT_SECRET`、`APP_VERSION`、`CORS_ALLOWED_ORIGINS` 和 bootstrap 用户文件写死成 `compose-local` 默认值。
+
+启动前先校验生产参数：
+
+```bash
+bash scripts/validate_production_env.sh .env
+```
 
 ## 步骤 2：启动栈
 

@@ -30,6 +30,7 @@ Set these at minimum:
 ```env
 PORT=8080
 DEV_MODE=false
+STRICT_PRODUCTION_CONFIG=true
 TASK_REPOSITORY_DRIVER=mongo
 MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
 MONGODB_DATABASE=taskflow
@@ -60,6 +61,14 @@ MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 ```
 
 If you deploy with the checked-in `docker-compose.yml`, the compose stack now reads the same variables from your shell or `.env` file instead of hard-coding `compose-local` values. That includes `JWT_SECRET`, `APP_VERSION`, `CORS_ALLOWED_ORIGINS`, and `BOOTSTRAP_USERS_FILE`.
+
+For intranet / production deployments, keep `STRICT_PRODUCTION_CONFIG=true` so the service refuses obvious placeholder values such as `compose-local` secrets, `compose-local` app versions, memory repository mode, or local-development CORS origins.
+
+Before `docker compose up`, validate the deployment inputs:
+
+```bash
+bash scripts/validate_production_env.sh .env
+```
 
 ## Build
 

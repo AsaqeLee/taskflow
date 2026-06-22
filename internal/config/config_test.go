@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestReadConfiguredFile(t *testing.T) {
@@ -39,5 +40,104 @@ func TestNewDevJWTSecret(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("expected generated dev secrets to differ")
+	}
+}
+
+func TestValidateProductionConfig(t *testing.T) {
+	t.Run("accepts strict production config", func(t *testing.T) {
+		if err := validateProductionConfig(validProductionConfig()); err != nil {
+			t.Fatalf("validateProductionConfig returned error: %v", err)
+		}
+	})
+
+	t.Run("rejects short jwt secret outside dev mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.StrictProductionConfig = false
+		cfg.JWTSecret = "short-secret"
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected short JWT secret to be rejected")
+		}
+	})
+
+	t.Run("rejects dev mode when strict production enabled", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.DevMode = true
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected dev mode to be rejected")
+		}
+	})
+
+	t.Run("rejects memory repository in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.RepositoryDriver = RepositoryDriverMemory
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected memory repository to be rejected")
+		}
+	})
+
+	t.Run("rejects placeholder jwt secret in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.JWTSecret = placeholderJWTSecretCompose
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected placeholder JWT secret to be rejected")
+		}
+	})
+
+	t.Run("rejects placeholder app version in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.AppVersion = placeholderAppVersionLocal
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected placeholder app version to be rejected")
+		}
+	})
+
+	t.Run("rejects public register in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.AllowPublicRegister = true
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected public register to be rejected")
+		}
+	})
+
+	t.Run("rejects localhost cors origin in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.CORSAllowedOrigins = []string{"http://localhost:5173"}
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected localhost CORS origin to be rejected")
+		}
+	})
+}
+
+func validProductionConfig() Config {
+	return Config{
+		Port:                           8080,
+		MongoURI:                       "mongodb://mongo:27017/?replicaSet=rs0",
+		MongoDB:                        "taskflow",
+		RepositoryDriver:               RepositoryDriverMongo,
+		JWTSecret:                      "0123456789abcdef0123456789abcdef",
+		DevMode:                        false,
+		LogLevel:                       "info",
+		AccessTokenTTL:                 2 * time.Hour,
+		RefreshTokenTTL:                7 * 24 * time.Hour,
+		PasswordResetTTL:               time.Hour,
+		RequestTimeout:                 15 * time.Second,
+		ShutdownTimeout:                10 * time.Second,
+		ServerReadTimeout:              10 * time.Second,
+		ServerWriteTimeout:             30 * time.Second,
+		RateLimitRequests:              120,
+		RateLimitWindow:                time.Minute,
+		IdempotencyTTL:                 10 * time.Minute,
+		LoginRateLimitRequests:         10,
+		LoginRateLimitWindow:           5 * time.Minute,
+		PasswordResetRateLimitRequests: 5,
+		PasswordResetRateLimitWindow:   15 * time.Minute,
+		TracingEnabled:                 false,
+		TracingEndpoint:                "",
+		TracingInsecure:                true,
+		TracingServiceName:             "taskflow",
+		AppVersion:                     "0d7edf3",
+		CORSAllowedOrigins:             []string{"https://taskflow.internal"},
+		AllowPublicRegister:            false,
+		StrictProductionConfig:         true,
 	}
 }

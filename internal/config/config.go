@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,14 @@ const (
 const RepositoryDriverMemory = "memory"
 const RepositoryDriverMongo = "mongo"
 
+const (
+	placeholderJWTSecretCompose = "compose-local-secret-must-be-at-least-32-chars"
+	placeholderJWTSecretExample = "replace-with-openssl-rand-hex-32"
+	placeholderAppVersionDev    = "dev"
+	placeholderAppVersionLocal  = "compose-local"
+	placeholderAppVersionPrompt = "replace-with-git-tag-or-short-sha"
+)
+
 type Config struct {
 	Port                           int    `validate:"required,gte=1,lte=65535"`
 	MongoURI                       string `validate:"required,uri"`
@@ -65,6 +74,7 @@ type Config struct {
 	AppVersion                     string `validate:"required"`
 	CORSAllowedOrigins             []string
 	AllowPublicRegister            bool
+	StrictProductionConfig         bool
 }
 
 func Load() Config {
@@ -108,6 +118,7 @@ func Load() Config {
 	tracingServiceName := strings.TrimSpace(getenv("TRACING_SERVICE_NAME", "taskflow"))
 	appVersion := getenv("APP_VERSION", "dev")
 	allowPublicRegister := devMode
+	strictProductionConfig, _ := strconv.ParseBool(getenv("STRICT_PRODUCTION_CONFIG", "false"))
 	if raw := strings.TrimSpace(os.Getenv("ALLOW_PUBLIC_REGISTER")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -145,6 +156,7 @@ func Load() Config {
 		AppVersion:                     appVersion,
 		AllowPublicRegister:            allowPublicRegister,
 		CORSAllowedOrigins:             parseCSVOrigins(getenv("CORS_ALLOWED_ORIGINS", "")),
+		StrictProductionConfig:         strictProductionConfig,
 	}
 
 	validate := validator.New()
@@ -152,10 +164,8 @@ func Load() Config {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	if !cfg.DevMode {
-		if len(cfg.JWTSecret) < 32 {
-			log.Fatal("Invalid configuration: JWT_SECRET must be at least 32 characters when DEV_MODE=false")
-		}
+	if err := validateProductionConfig(cfg); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 	if cfg.DevMode && cfg.AppVersion != "dev" && !strings.HasPrefix(cfg.AppVersion, "compose-") {
 		log.Printf("WARNING: DEV_MODE=true with APP_VERSION=%s — do not use in intranet/production deployments", cfg.AppVersion)
@@ -177,6 +187,67 @@ func parseCSVOrigins(value string) []string {
 		}
 	}
 	return origins
+}
+
+func validateProductionConfig(cfg Config) error {
+	if !cfg.DevMode && len(cfg.JWTSecret) < 32 {
+		return errors.New("JWT_SECRET must be at least 32 characters when DEV_MODE=false")
+	}
+	if !cfg.StrictProductionConfig {
+		return nil
+	}
+	if cfg.DevMode {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires DEV_MODE=false")
+	}
+	if cfg.RepositoryDriver != RepositoryDriverMongo {
+		return fmt.Errorf("STRICT_PRODUCTION_CONFIG=true requires TASK_REPOSITORY_DRIVER=%s", RepositoryDriverMongo)
+	}
+	if cfg.AllowPublicRegister {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires ALLOW_PUBLIC_REGISTER=false")
+	}
+	if isPlaceholderJWTSecret(cfg.JWTSecret) {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires a non-placeholder JWT_SECRET")
+	}
+	if isPlaceholderAppVersion(cfg.AppVersion) {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires APP_VERSION to be a real release tag or commit SHA")
+	}
+	for _, origin := range cfg.CORSAllowedOrigins {
+		if err := validateProductionOrigin(origin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isPlaceholderJWTSecret(secret string) bool {
+	switch strings.TrimSpace(secret) {
+	case placeholderJWTSecretCompose, placeholderJWTSecretExample:
+		return true
+	default:
+		return false
+	}
+}
+
+func isPlaceholderAppVersion(version string) bool {
+	switch strings.TrimSpace(version) {
+	case "", placeholderAppVersionDev, placeholderAppVersionLocal, placeholderAppVersionPrompt:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateProductionOrigin(origin string) error {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("STRICT_PRODUCTION_CONFIG=true requires valid CORS_ALLOWED_ORIGINS entries, got %q", origin)
+	}
+	switch parsed.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return fmt.Errorf("STRICT_PRODUCTION_CONFIG=true forbids local development CORS origin %q", origin)
+	default:
+		return nil
+	}
 }
 
 func getenv(key, fallback string) string {

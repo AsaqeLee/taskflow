@@ -38,6 +38,7 @@ migrate 服务幂等；升级后确认 `/readyz` 与核心流程。
 cp .env.intranet.example .env   # 填写 JWT_SECRET / APP_VERSION / BOOTSTRAP_USERS_FILE
 cp scripts/users.example.json scripts/users.intranet.json
 # 修改 scripts/users.intranet.json 中每个默认密码
+bash scripts/validate_production_env.sh .env
 docker compose up -d --build    # migrate → bootstrap（自动）→ taskflow
 ```
 

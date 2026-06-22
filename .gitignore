@@ -26,6 +26,7 @@ scripts/*
 !scripts/rollback_image.sh
 !scripts/security_audit.sh
 !scripts/users.example.json
+!scripts/validate_production_env.sh
 backups/acceptance/*.gz
 evidence/
 docs/
