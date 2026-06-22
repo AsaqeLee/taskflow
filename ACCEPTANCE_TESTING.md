@@ -12,7 +12,7 @@
 
 1. Docker / Compose 可用，端口 `8080`、`27018` 未被占用（或与 compose 配置一致）。
 2. 脚本在仓库根目录执行。
-3. 默认使用 bootstrap 账号（`u_owner` / `u_alice`）及 `scripts/users.example.json` 中的密码。
+3. 默认使用 bootstrap 账号（`u_owner` / `u_alice`）及 `BOOTSTRAP_USERS_FILE` 指向文件中的密码；若未设置，该默认值才是 `scripts/users.example.json`。
 4. 需要 `python3`、`curl`、`docker compose`。
 
 ## 常用命令

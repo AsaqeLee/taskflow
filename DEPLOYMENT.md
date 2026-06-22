@@ -35,6 +35,7 @@ MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
 MONGODB_DATABASE=taskflow
 JWT_SECRET=<strong-random-secret>
 APP_VERSION=<release-tag>
+BOOTSTRAP_USERS_FILE=./scripts/users.intranet.json
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
 RATE_LIMIT_REQUESTS=120
@@ -48,6 +49,7 @@ TRACING_ENABLED=false
 TRACING_ENDPOINT=otel-collector:4318
 TRACING_INSECURE=true
 TRACING_SERVICE_NAME=taskflow
+CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
 
 Optional secret file inputs:
@@ -56,6 +58,8 @@ Optional secret file inputs:
 JWT_SECRET_FILE=/run/secrets/taskflow_jwt_secret
 MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 ```
+
+If you deploy with the checked-in `docker-compose.yml`, the compose stack now reads the same variables from your shell or `.env` file instead of hard-coding `compose-local` values. That includes `JWT_SECRET`, `APP_VERSION`, `CORS_ALLOWED_ORIGINS`, and `BOOTSTRAP_USERS_FILE`.
 
 ## Build
 
@@ -100,6 +104,15 @@ docker run --rm -p 8080:8080 \
 docker compose up -d --build
 bash scripts/compose_smoke.sh
 ```
+
+The compose defaults remain local-only:
+
+- `JWT_SECRET=compose-local-secret-must-be-at-least-32-chars`
+- `APP_VERSION=compose-local`
+- `BOOTSTRAP_USERS_FILE=./scripts/users.example.json`
+- `CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+
+Treat these as development defaults only. For intranet/production rollout, override them through `.env` or exported environment variables before `docker compose up`.
 
 ## Readiness and Observability
 

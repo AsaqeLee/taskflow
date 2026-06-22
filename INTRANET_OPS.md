@@ -35,11 +35,13 @@ migrate 服务幂等；升级后确认 `/readyz` 与核心流程。
 **冷启动（无用户）：**
 
 ```bash
-cp .env.intranet.example .env   # 填写 JWT_SECRET
+cp .env.intranet.example .env   # 填写 JWT_SECRET / APP_VERSION / BOOTSTRAP_USERS_FILE
+cp scripts/users.example.json scripts/users.intranet.json
+# 修改 scripts/users.intranet.json 中每个默认密码
 docker compose up -d --build    # migrate → bootstrap（自动）→ taskflow
 ```
 
-`docker-compose.yml` 已包含 `bootstrap` one-shot 服务，默认读取 `scripts/users.example.json`。自定义用户文件可改 compose volume 挂载，或在本机执行：
+`docker-compose.yml` 已包含 `bootstrap` one-shot 服务，现在会读取 `.env` 中的 `BOOTSTRAP_USERS_FILE`。本地/CI 默认值仍是 `scripts/users.example.json`，生产请改成你自己的文件，例如 `./scripts/users.intranet.json`。如需在本机单独执行：
 
 ```bash
 USERS_FILE=./my-users.json ./scripts/bootstrap_users.sh

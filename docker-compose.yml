@@ -1,3 +1,38 @@
+x-build-args: &app-build-args
+  APP_VERSION: ${APP_VERSION:-compose-local}
+
+x-common-env: &common-env
+  PORT: "${PORT:-8080}"
+  DEV_MODE: "${DEV_MODE:-false}"
+  ALLOW_PUBLIC_REGISTER: "${ALLOW_PUBLIC_REGISTER:-false}"
+  TASK_REPOSITORY_DRIVER: "${TASK_REPOSITORY_DRIVER:-mongo}"
+  MONGODB_URI: "${MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0}"
+  MONGODB_DATABASE: "${MONGODB_DATABASE:-taskflow}"
+  JWT_SECRET: "${JWT_SECRET:-compose-local-secret-must-be-at-least-32-chars}"
+  APP_VERSION: "${APP_VERSION:-compose-local}"
+  LOG_LEVEL: "${LOG_LEVEL:-info}"
+
+x-runtime-env: &runtime-env
+  <<: *common-env
+  ACCESS_TOKEN_TTL: "${ACCESS_TOKEN_TTL:-2h}"
+  REFRESH_TOKEN_TTL: "${REFRESH_TOKEN_TTL:-168h}"
+  PASSWORD_RESET_TTL: "${PASSWORD_RESET_TTL:-1h}"
+  REQUEST_TIMEOUT: "${REQUEST_TIMEOUT:-15s}"
+  SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-10s}"
+  SERVER_READ_TIMEOUT: "${SERVER_READ_TIMEOUT:-10s}"
+  SERVER_WRITE_TIMEOUT: "${SERVER_WRITE_TIMEOUT:-30s}"
+  RATE_LIMIT_REQUESTS: "${RATE_LIMIT_REQUESTS:-120}"
+  RATE_LIMIT_WINDOW: "${RATE_LIMIT_WINDOW:-1m}"
+  LOGIN_RATE_LIMIT_REQUESTS: "${LOGIN_RATE_LIMIT_REQUESTS:-10}"
+  LOGIN_RATE_LIMIT_WINDOW: "${LOGIN_RATE_LIMIT_WINDOW:-5m}"
+  PASSWORD_RESET_RATE_LIMIT_REQUESTS: "${PASSWORD_RESET_RATE_LIMIT_REQUESTS:-5}"
+  PASSWORD_RESET_RATE_LIMIT_WINDOW: "${PASSWORD_RESET_RATE_LIMIT_WINDOW:-15m}"
+  IDEMPOTENCY_TTL: "${IDEMPOTENCY_TTL:-10m}"
+  TRACING_ENABLED: "${TRACING_ENABLED:-true}"
+  TRACING_ENDPOINT: "${TRACING_ENDPOINT:-otel-collector:4318}"
+  TRACING_INSECURE: "${TRACING_INSECURE:-true}"
+  TRACING_SERVICE_NAME: "${TRACING_SERVICE_NAME:-taskflow}"
+
 services:
   mongo:
     image: mongo:7
@@ -50,47 +85,18 @@ services:
   migrate:
     build:
       context: .
-      args:
-        APP_VERSION: compose-local
+      args: *app-build-args
     restart: "no"
     entrypoint: ["/usr/local/bin/taskflow-migrate"]
     depends_on:
       mongo-init:
         condition: service_completed_successfully
-    environment:
-      PORT: "8080"
-      DEV_MODE: "false"
-      ALLOW_PUBLIC_REGISTER: "false"
-      TASK_REPOSITORY_DRIVER: mongo
-      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
-      MONGODB_DATABASE: taskflow
-      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
-      APP_VERSION: compose-local
-      LOG_LEVEL: info
-      ACCESS_TOKEN_TTL: 2h
-      REFRESH_TOKEN_TTL: 168h
-      PASSWORD_RESET_TTL: 1h
-      REQUEST_TIMEOUT: 15s
-      SHUTDOWN_TIMEOUT: 10s
-      SERVER_READ_TIMEOUT: 10s
-      SERVER_WRITE_TIMEOUT: 30s
-      RATE_LIMIT_REQUESTS: "120"
-      RATE_LIMIT_WINDOW: 1m
-      LOGIN_RATE_LIMIT_REQUESTS: "10"
-      LOGIN_RATE_LIMIT_WINDOW: 5m
-      PASSWORD_RESET_RATE_LIMIT_REQUESTS: "5"
-      PASSWORD_RESET_RATE_LIMIT_WINDOW: 15m
-      IDEMPOTENCY_TTL: 10m
-      TRACING_ENABLED: "true"
-      TRACING_ENDPOINT: otel-collector:4318
-      TRACING_INSECURE: "true"
-      TRACING_SERVICE_NAME: taskflow
+    environment: *runtime-env
 
   bootstrap:
     build:
       context: .
-      args:
-        APP_VERSION: compose-local
+      args: *app-build-args
     restart: "no"
     entrypoint: ["/usr/local/bin/taskflow-bootstrap"]
     command: ["-users", "/bootstrap/users.json"]
@@ -98,24 +104,15 @@ services:
       migrate:
         condition: service_completed_successfully
     volumes:
-      - ./scripts/users.example.json:/bootstrap/users.json:ro
+      - ${BOOTSTRAP_USERS_FILE:-./scripts/users.example.json}:/bootstrap/users.json:ro
     environment:
-      PORT: "8080"
-      DEV_MODE: "false"
-      ALLOW_PUBLIC_REGISTER: "false"
-      TASK_REPOSITORY_DRIVER: mongo
-      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
-      MONGODB_DATABASE: taskflow
-      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
-      APP_VERSION: compose-local
-      LOG_LEVEL: info
+      <<: *common-env
       USERS_FILE: /bootstrap/users.json
 
   taskflow:
     build:
       context: .
-      args:
-        APP_VERSION: compose-local
+      args: *app-build-args
     restart: unless-stopped
     depends_on:
       mongo-init:
@@ -127,34 +124,8 @@ services:
       bootstrap:
         condition: service_completed_successfully
     environment:
-      PORT: "8080"
-      DEV_MODE: "false"
-      ALLOW_PUBLIC_REGISTER: "false"
-      TASK_REPOSITORY_DRIVER: mongo
-      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
-      MONGODB_DATABASE: taskflow
-      JWT_SECRET: compose-local-secret-must-be-at-least-32-chars
-      APP_VERSION: compose-local
-      LOG_LEVEL: info
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      ACCESS_TOKEN_TTL: 2h
-      REFRESH_TOKEN_TTL: 168h
-      PASSWORD_RESET_TTL: 1h
-      REQUEST_TIMEOUT: 15s
-      SHUTDOWN_TIMEOUT: 10s
-      SERVER_READ_TIMEOUT: 10s
-      SERVER_WRITE_TIMEOUT: 30s
-      RATE_LIMIT_REQUESTS: "120"
-      RATE_LIMIT_WINDOW: 1m
-      LOGIN_RATE_LIMIT_REQUESTS: "10"
-      LOGIN_RATE_LIMIT_WINDOW: 5m
-      PASSWORD_RESET_RATE_LIMIT_REQUESTS: "5"
-      PASSWORD_RESET_RATE_LIMIT_WINDOW: 15m
-      IDEMPOTENCY_TTL: 10m
-      TRACING_ENABLED: "true"
-      TRACING_ENDPOINT: otel-collector:4318
-      TRACING_INSECURE: "true"
-      TRACING_SERVICE_NAME: taskflow
+      <<: *runtime-env
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
     ports:
       - "8080:8080"
     healthcheck:

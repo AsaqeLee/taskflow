@@ -18,14 +18,24 @@ cp .env.intranet.example .env
 
 ```env
 JWT_SECRET=<openssl rand -hex 32 的输出>
-APP_VERSION=intranet-1.0.0
+APP_VERSION=<git tag 或 short SHA>
+BOOTSTRAP_USERS_FILE=./scripts/users.intranet.json
+```
+
+并先准备首批用户文件：
+
+```bash
+cp scripts/users.example.json scripts/users.intranet.json
+# 把 scripts/users.intranet.json 中每个默认密码替换掉
 ```
 
 生产若前后端分离，设置：
 
 ```env
-CORS_ALLOWED_ORIGINS=https://taskflow.internal,http://taskflow.internal:5173
+CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
+
+`docker-compose.yml` 现在会直接读取这些 `.env` 参数，不再把 `JWT_SECRET`、`APP_VERSION`、`CORS_ALLOWED_ORIGINS` 和 bootstrap 用户文件写死成 `compose-local` 默认值。
 
 ## 步骤 2：启动栈
 
@@ -44,20 +54,15 @@ docker compose ps
 
 ## 步骤 3：验证首批用户
 
-默认账号来自 `scripts/users.example.json`：
-
-| ID | 角色 | 默认密码 |
-|----|------|----------|
-| `u_owner` | owner | `change-me-owner-123` |
-| `u_alice` | human | `change-me-alice-123` |
+默认账号来自 `BOOTSTRAP_USERS_FILE` 指向的文件。若你按上一步复制了 `scripts/users.intranet.json`，这里应以那个文件为准。仓库默认示例 `scripts/users.example.json` 只用于本地/CI。
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"id":"u_owner","password":"change-me-owner-123"}' | head
+  -d '{"id":"u_owner","password":"<你在 BOOTSTRAP_USERS_FILE 里设置的 owner 密码>"}' | head
 ```
 
-**首次登录后请修改密码**（MVP 期无 UI，可由 owner 禁用后重建）。
+**bootstrap 密码必须视为临时密码**。MVP 期无 UI 修改密码，可由 owner 禁用后重建，或在上线前直接重新生成 bootstrap 用户文件。
 
 ## 步骤 4：自动化验收
 

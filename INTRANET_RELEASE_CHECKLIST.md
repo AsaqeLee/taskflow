@@ -10,7 +10,8 @@
 - [x] `.env` 或部署环境已设置 `DEV_MODE=false`（compose 默认 `false`，本地验收已验证）
 - [ ] `JWT_SECRET` 已替换为强随机值（compose 示例值仅用于本地/CI；**生产部署前必须替换**）
 - [~] `APP_VERSION` 已设置为明确版本号或 commit tag（本地 compose 为 `compose-local`；生产建议设为 git tag 或 commit short SHA）
-- [x] `scripts/users.example.json` 或自定义 bootstrap 用户文件已确认
+- [ ] `BOOTSTRAP_USERS_FILE` 已指向自定义用户文件，且不再使用 `scripts/users.example.json` 默认密码
+- [ ] `CORS_ALLOWED_ORIGINS` 已替换为实际内网前端域名（同域部署可与入口域名一致）
 - [x] 本地后端验证通过：`go test ./...`（2026-06-22）
 - [x] 本地前端验证通过：`cd web && npm run lint && npm run test && npm run build`（2026-06-22，17 tests）
 - [x] Compose smoke 通过：`bash scripts/compose_smoke.sh`（2026-06-22）
@@ -36,7 +37,7 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 
 ## 3. 部署顺序
 
-1. 准备 `.env`，确认 `JWT_SECRET`、`APP_VERSION`、`CORS_ALLOWED_ORIGINS`
+1. 准备 `.env`，确认 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`
 2. 执行 `docker compose up -d --build`
 3. 检查 `docker compose ps` 与 `curl -sf http://127.0.0.1:8080/readyz`
 4. 用 bootstrap owner 账号执行一次登录验证
@@ -54,6 +55,7 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 - [x] owner 可 `close`（Playwright 2026-06-22）
 - [x] 详情页可查看 records 与 audit logs（Playwright 2026-06-22）
 - [x] 服务重启后任务数据仍在（`intranet_acceptance.sh` P3-11，2026-06-22）
+- [ ] bootstrap 账号使用的已是自定义密码，而非 `change-me-*`
 
 ## 5. 发布记录
 
@@ -66,7 +68,7 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 | 镜像 tag | `taskflow-taskflow:latest`（本地 compose build） |
 | 验收结果 | **通过** — go test、前端 lint/test/build、compose smoke、冷启动 acceptance、Playwright 浏览器全流程 |
 | 备份文件路径 | `backups/acceptance/acceptance-20260622-112027.gz` |
-| 已知风险 | compose `JWT_SECRET` 为示例值；`APP_VERSION` 非生产 tag；移动端未人工点验；GitHub Actions 最新 run 已通过（2026-06-22） |
+| 已知风险 | compose 默认值仅用于本地/CI；生产仍需替换 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`；移动端未人工点验；GitHub Actions 最新 run 已通过（2026-06-22） |
 
 ## 6. 当前已知非目标
 
