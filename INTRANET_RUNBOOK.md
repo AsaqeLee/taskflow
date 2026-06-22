@@ -10,6 +10,15 @@
 
 ## 步骤 1：准备环境变量
 
+**快捷方式（推荐本地/试点）：**
+
+```bash
+bash scripts/init_pilot_env.sh
+# 生成 .env、scripts/users.intranet.json、evidence/pilot-credentials.txt
+```
+
+**手工方式：**
+
 ```bash
 cp .env.intranet.example .env
 ```
@@ -45,9 +54,10 @@ bash scripts/validate_production_env.sh .env
 bash scripts/release_candidate_check.sh .env
 ```
 
-## 步骤 2：启动栈
+## 步骤 2：构建前端并启动栈
 
 ```bash
+bash scripts/web_build_smoke.sh
 docker compose up -d --build
 ```
 

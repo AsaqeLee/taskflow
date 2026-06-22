@@ -7,28 +7,27 @@
 以下项目全部满足，才视为本次版本可发布：
 
 - [x] 已确认发布范围仍为 MVP：不含用户管理 UI、密码重置页、公开注册页、任务分页搜索
-- [x] `.env` 或部署环境已设置 `DEV_MODE=false`（compose 默认 `false`，本地验收已验证）
-- [ ] `STRICT_PRODUCTION_CONFIG=true` 已启用（禁止 `compose-local` / placeholder 生产参数）
-- [ ] `JWT_SECRET` 已替换为强随机值（compose 示例值仅用于本地/CI；**生产部署前必须替换**）
-- [~] `APP_VERSION` 已设置为明确版本号或 commit tag（本地 compose 为 `compose-local`；生产建议设为 git tag 或 commit short SHA）
-- [ ] `BOOTSTRAP_USERS_FILE` 已指向自定义用户文件，且不再使用 `scripts/users.example.json` 默认密码
-- [ ] `CORS_ALLOWED_ORIGINS` 已替换为实际内网前端域名（同域部署可与入口域名一致）
-- [x] 本地后端验证通过：`go test ./...`（2026-06-22）
-- [x] 本地前端验证通过：`cd web && npm run lint && npm run test && npm run build`（2026-06-22，17 tests）
-- [x] Compose smoke 通过：`bash scripts/compose_smoke.sh`（2026-06-22）
-- [x] 完整冷启动验收通过：`COLD_START=1 bash scripts/intranet_acceptance.sh`（2026-06-22）
-- [x] 至少完成一次浏览器点验：owner + assignee 全流程（2026-06-22，`npm run acceptance:browser` Playwright 通过）
+- [x] `.env` 或部署环境已设置 `DEV_MODE=false`
+- [x] `STRICT_PRODUCTION_CONFIG=true` 已启用（本地 pilot `.env` 已验证）
+- [x] `JWT_SECRET` 已替换为强随机值（`bash scripts/init_pilot_env.sh` 生成，不入 git）
+- [x] `APP_VERSION` 已设置为明确版本号或 commit tag（pilot 使用 git short SHA）
+- [x] `BOOTSTRAP_USERS_FILE` 已指向自定义用户文件，且不再使用 `scripts/users.example.json` 默认密码
+- [x] `CORS_ALLOWED_ORIGINS` 已按入口方式配置（同域 nginx/preview 可为空；分域时填真实域名）
+- [x] 本地后端验证通过：`go test ./...`
+- [x] 本地前端验证通过：`cd web && npm run lint && npm run test && npm run build`
+- [x] Compose smoke 通过：`bash scripts/compose_smoke.sh`
+- [x] 完整冷启动验收通过：`COLD_START=1 bash scripts/intranet_acceptance.sh`
+- [x] 浏览器点验通过：`bash scripts/web_acceptance_smoke.sh`（desktop + responsive）
+- [x] 生产 bundle 入口验证：`bash scripts/pilot_smoke.sh .env`
 - [x] 已保留本次验收产物：日志、备份文件路径、版本号、执行人（见 §5）
+- [ ] **目标内网主机**完成同样部署与点验（需运维在真实环境执行一次）
 
 ## 2. 发布前检查
 
 ```bash
-bash scripts/release_candidate_check.sh .env
+bash scripts/init_pilot_env.sh          # 或手工准备 .env
 bash scripts/validate_production_env.sh .env
-go test ./...
-cd web && npm run lint && npm run test && npm run build
-bash scripts/compose_smoke.sh
-COLD_START=1 bash scripts/intranet_acceptance.sh
+bash scripts/release_candidate_check.sh .env
 ```
 
 需要同时确认：
@@ -37,44 +36,49 @@ COLD_START=1 bash scripts/intranet_acceptance.sh
 - [x] owner 可 `GET /users?active=true`
 - [x] 匿名 `POST /users` 返回 `401`
 - [x] 备份恢复后任务仍可读
-- [ ] `npm --prefix web run acceptance:responsive` 通过，或完成同等移动端人工点验
+- [x] `acceptance:responsive` 通过（含在 `web_acceptance_smoke.sh`）
 
 ## 3. 部署顺序
 
-1. 准备 `.env`，确认 `STRICT_PRODUCTION_CONFIG`、`JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS`
-2. 执行 `bash scripts/validate_production_env.sh .env`
-3. 执行 `docker compose up -d --build`
-4. 检查 `docker compose ps` 与 `curl -sf http://127.0.0.1:8080/readyz`
-5. 用 bootstrap owner 账号执行一次登录验证
-6. 按需启动前端演示：`cd web && npm run dev`，或托管 `web/dist`
+1. `bash scripts/init_pilot_env.sh` 或手工准备 `.env`
+2. `bash scripts/validate_production_env.sh .env`
+3. `bash scripts/web_build_smoke.sh`（构建 `web/dist`）
+4. `docker compose --env-file .env up -d --build`
+5. 前端入口二选一：
+   - **推荐试点：** `npm --prefix web run preview -- --host 0.0.0.0 --port 8081`
+   - **生产 nginx：** `docker compose --env-file .env --profile full up -d`（需 nginx 镜像）
+6. 检查 `curl -sf http://127.0.0.1:8080/readyz`
+7. 用 `evidence/pilot-credentials.txt` 中的 owner 账号登录验证
 
 ## 4. 发布后人工点验
 
-- [x] owner 登录成功（Playwright 2026-06-22）
-- [x] assignee 登录成功（Playwright 2026-06-22）
-- [x] owner 可创建任务（Playwright 2026-06-22）
-- [x] owner 可分配任务（Playwright 2026-06-22）
-- [x] assignee 可 `start`（Playwright 2026-06-22）
-- [x] assignee 可 `submit`（Playwright 2026-06-22）
-- [x] owner 可 `approve`（Playwright 2026-06-22）
-- [x] owner 可 `close`（Playwright 2026-06-22）
-- [x] 详情页可查看 records 与 audit logs（Playwright 2026-06-22）
-- [x] 服务重启后任务数据仍在（`intranet_acceptance.sh` P3-11，2026-06-22）
-- [ ] bootstrap 账号使用的已是自定义密码，而非 `change-me-*`
+- [x] owner 登录成功（Playwright）
+- [x] assignee 登录成功（Playwright）
+- [x] owner 可创建任务（Playwright）
+- [x] owner 可分配任务（Playwright）
+- [x] assignee 可 `start`（Playwright）
+- [x] assignee 可 `submit`（Playwright）
+- [x] owner 可 `approve`（Playwright）
+- [x] owner 可 `close`（Playwright）
+- [x] 详情页可查看 records 与 audit logs（Playwright）
+- [x] 服务重启后任务数据仍在（`intranet_acceptance.sh` P3-11）
+- [x] bootstrap 账号使用自定义密码（pilot env 已验证）
+- [x] 375px / 768px 核心页面可用（`acceptance:responsive`）
 
 ## 5. 发布记录
 
 | 字段 | 填写 |
 |------|------|
 | 日期 | 2026-06-22 |
-| 执行人 | 本地自动化验收（Agent） |
-| Git commit | 待本轮生产加固提交后回填（当前基线：`0d7edf3c0cbf7f835da4fa6a2338b61521e29049`） |
-| APP_VERSION | `compose-local`（本地验证值；生产部署时改为 tag/SHA） |
-| 镜像 tag | `taskflow-taskflow:latest`（本地 compose build） |
-| 验收结果 | **通过** — go test、前端 lint/test/build、compose smoke、冷启动 acceptance、Playwright 浏览器全流程 |
-| 备份文件路径 | `backups/acceptance/acceptance-20260622-191906.gz` |
+| 执行人 | 本地自动化 + pilot env 验收 |
+| Git commit | `2fae073d09544cc816fa1419c328bdc85f2a7204`（含本轮收口改动后需更新） |
+| APP_VERSION | pilot `.env` 使用 `2fae073` |
+| 镜像 tag | `taskflow-taskflow:latest` |
+| 验收结果 | **本地试点通过** — `release_candidate_check.sh .env` 全链路 |
+| 备份文件路径 | `backups/acceptance/acceptance-20260622-210127.gz` |
 | 校验记录 | `reports/intranet-release-assessment-2026-06-22.md` |
-| 已知风险 | compose 默认值仅用于本地/CI；生产仍需替换 `JWT_SECRET`、`APP_VERSION`、`BOOTSTRAP_USERS_FILE`、`CORS_ALLOWED_ORIGINS` 并启用 `STRICT_PRODUCTION_CONFIG=true`；移动端未人工点验；GitHub Actions 最新 run 已通过（2026-06-22） |
+| 账号凭证 | `evidence/pilot-credentials.txt`（gitignored，勿提交） |
+| 已知风险 | 目标内网主机尚未实配；docker nginx profile 需能拉取 nginx 镜像 |
 
 ## 6. 当前已知非目标
 

@@ -29,6 +29,11 @@ scripts/*
 !scripts/validate_production_env.sh
 !scripts/release_candidate_check.sh
 !scripts/web_acceptance_smoke.sh
+!scripts/init_pilot_env.sh
+!scripts/read_bootstrap_credentials.sh
+!scripts/compose_env.sh
+!scripts/pilot_smoke.sh
+scripts/users.intranet.json
 backups/acceptance/*.gz
 evidence/
 docs/

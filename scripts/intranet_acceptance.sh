@@ -5,6 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# shellcheck disable=SC1091
+source "$ROOT/scripts/compose_env.sh"
+if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
+  load_compose_context
+else
+  refresh_compose_args
+fi
+
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 MONGO_URI="${MONGODB_URI:-mongodb://127.0.0.1:27018/?replicaSet=rs0}"
 MONGO_DB="${MONGODB_DATABASE:-taskflow}"
@@ -53,11 +61,13 @@ login() {
 
 if [[ "$COLD_START" == "1" ]]; then
   log "P3-10 cold start: docker compose down -v"
-  docker compose down -v
+  refresh_compose_args
+  docker compose "${COMPOSE_ARGS[@]}" down -v
 fi
 
 log "starting stack (migrate + bootstrap + taskflow)"
-docker compose up -d --build
+refresh_compose_args
+docker compose "${COMPOSE_ARGS[@]}" up -d --build
 wait_ready
 
 log "P3-10: bootstrap users can login"

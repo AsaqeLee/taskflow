@@ -160,6 +160,9 @@ jobs:
       - name: Intranet acceptance (incremental)
         run: bash scripts/intranet_acceptance.sh
 
+      - name: Browser and responsive acceptance
+        run: bash scripts/web_acceptance_smoke.sh
+
       - name: Dump compose logs on failure
         if: failure()
         run: |

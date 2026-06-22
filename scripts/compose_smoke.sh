@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/compose_env.sh"
+if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
+  load_compose_context
+else
+  refresh_compose_args
+fi
+
 base_url="${BASE_URL:-http://127.0.0.1:8080}"
 max_attempts="${STACK_READY_RETRIES:-30}"
 sleep_seconds="${STACK_READY_SLEEP_SECONDS:-3}"
 
-docker compose up -d --build
+refresh_compose_args
+docker compose "${COMPOSE_ARGS[@]}" up -d --build
 
 for ((attempt = 1; attempt <= max_attempts; attempt++)); do
   if curl --silent --fail "${base_url}/readyz" >/dev/null; then

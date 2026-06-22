@@ -3,9 +3,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_DIR="$ROOT/web"
+
+if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/scripts/compose_env.sh"
+  load_compose_context
+fi
 WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:5173}"
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
-WEB_PORT="${WEB_PORT:-5173}"
+# Always use the Vite dev port here; do not inherit WEB_PORT from compose pilot env.
+WEB_DEV_PORT="${WEB_DEV_PORT:-5173}"
 VITE_LOG="${VITE_LOG:-/tmp/taskflow-vite.log}"
 
 log() {
@@ -34,7 +41,7 @@ log "ensuring Playwright chromium is installed"
 
 log "starting Vite dev server on ${WEB_BASE_URL}"
 rm -f "$VITE_LOG"
-npm --prefix "$WEB_DIR" run dev -- --host "$WEB_HOST" --port "$WEB_PORT" --strictPort >"$VITE_LOG" 2>&1 &
+npm --prefix "$WEB_DIR" run dev -- --host "$WEB_HOST" --port "$WEB_DEV_PORT" --strictPort >"$VITE_LOG" 2>&1 &
 vite_pid="$!"
 
 for attempt in {1..30}; do
