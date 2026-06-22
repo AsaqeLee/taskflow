@@ -26,7 +26,15 @@ import {
   updateTask,
 } from '../lib/apiClient'
 import { getStoredUser } from '../lib/auth'
-import type { AuditLog, Task, TaskAction, TaskRecord, User } from '../types/api'
+import type {
+  AuditLog,
+  Task,
+  TaskAction,
+  TaskRecord,
+  TaskRecordInput,
+  TaskRecordMetadataField,
+  User,
+} from '../types/api'
 
 interface TaskPageData {
   task: Task
@@ -67,7 +75,10 @@ export function TaskDetailPage() {
   const taskState = useAsyncData<TaskPageData>(`task:${id}`, taskLoader)
   const usersState = useAsyncData<User[]>(`users:${id}`, usersLoader)
 
-  async function handleAction(action: TaskAction, content = '') {
+  async function handleAction(
+    action: TaskAction,
+    payload: TaskRecordInput = { content: '' },
+  ) {
     const task = taskState.data?.task
     if (!task) return
     setActionError(null)
@@ -81,22 +92,22 @@ export function TaskDetailPage() {
           await startTask(task.id)
           break
         case 'submit':
-          await submitTask(task.id, content)
+          await submitTask(task.id, payload)
           break
         case 'reject':
-          await rejectTask(task.id, content)
+          await rejectTask(task.id, payload)
           break
         case 'approve':
-          await approveTask(task.id, content)
+          await approveTask(task.id, payload)
           break
         case 'close':
           await closeTask(task.id)
           break
         case 'cancel':
-          await cancelTask(task.id, content)
+          await cancelTask(task.id, payload.content)
           break
         case 'reactivate':
-          await reactivateTask(task.id, content)
+          await reactivateTask(task.id, payload.content)
           break
         case 'delete':
           await deleteTask(task.id)
@@ -177,12 +188,47 @@ export function TaskDetailPage() {
         key={pendingAction ?? 'closed'}
         action={pendingAction}
         needsContent={pendingAction ? actionNeedsContent(pendingAction) : false}
+        metadataFields={pendingAction ? actionMetadataFields(pendingAction, currentUser.role) : []}
         onClose={() => setPendingAction(null)}
-        onConfirm={(content) => {
+        onConfirm={(payload) => {
           if (!pendingAction) return Promise.resolve()
-          return handleAction(pendingAction, content)
+          return handleAction(pendingAction, payload)
         }}
       />
     </div>
   )
+}
+
+function actionMetadataFields(action: TaskAction, role: string): TaskRecordMetadataField[] {
+  if (action === 'submit' && role === 'agent') {
+    return [
+      {
+        key: 'summary',
+        label: '执行摘要',
+        placeholder: '本次执行完成了什么',
+      },
+      {
+        key: 'blocking_reason',
+        label: '阻塞说明',
+        placeholder: '若仍受阻，请填写阻塞点',
+      },
+      {
+        key: 'failure_reason',
+        label: '失败原因',
+        placeholder: '若执行失败，请填写失败原因',
+      },
+    ]
+  }
+
+  if (action === 'approve' || action === 'reject') {
+    return [
+      {
+        key: 'review_note',
+        label: '审核意见',
+        placeholder: '补充审核意见（可选）',
+      },
+    ]
+  }
+
+  return []
 }

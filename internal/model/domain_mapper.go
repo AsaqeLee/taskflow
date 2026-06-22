@@ -36,6 +36,7 @@ func TaskRecordFromDomain(r domainrecord.Record) TaskRecord {
 		AuthorID:  r.AuthorID(),
 		Type:      r.Type().String(),
 		Content:   r.Content(),
+		Metadata:  r.Metadata(),
 		CreatedAt: r.CreatedAt(),
 	}
 }

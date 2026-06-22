@@ -30,7 +30,8 @@ type assignTaskRequest struct {
 }
 
 type taskRecordRequest struct {
-	Content string `json:"content"`
+	Content  string            `json:"content"`
+	Metadata map[string]string `json:"metadata"`
 }
 
 func NewTaskHandler(taskService *service.TaskService) *TaskHandler {
@@ -60,7 +61,13 @@ func (h *TaskHandler) Create(c *gin.Context) {
 }
 
 func (h *TaskHandler) GetByID(c *gin.Context) {
-	task, err := h.service.GetTask(c.Request.Context(), c.Param("id"))
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	task, err := h.service.GetTaskForUser(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -70,9 +77,15 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 }
 
 func (h *TaskHandler) List(c *gin.Context) {
-	tasks, err := h.service.ListTasks(c.Request.Context())
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	tasks, err := h.service.ListTasksForUser(c.Request.Context(), currentUser)
 	if err != nil {
-		httpapi.WriteError(c, http.StatusInternalServerError, "tasks_list_failed", err.Error())
+		h.writeServiceError(c, err)
 		return
 	}
 
@@ -80,7 +93,13 @@ func (h *TaskHandler) List(c *gin.Context) {
 }
 
 func (h *TaskHandler) ListRecords(c *gin.Context) {
-	records, err := h.service.ListTaskRecords(c.Request.Context(), c.Param("id"))
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	records, err := h.service.ListTaskRecordsForUser(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -162,7 +181,7 @@ func (h *TaskHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.SubmitTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.SubmitTaskWithMetadata(c.Request.Context(), currentUser, c.Param("id"), req.Content, req.Metadata)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -184,7 +203,7 @@ func (h *TaskHandler) Reject(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.RejectTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.RejectTaskWithMetadata(c.Request.Context(), currentUser, c.Param("id"), req.Content, req.Metadata)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -206,7 +225,7 @@ func (h *TaskHandler) Approve(c *gin.Context) {
 		return
 	}
 
-	task, record, err := h.service.ApproveTask(c.Request.Context(), currentUser, c.Param("id"), req.Content)
+	task, record, err := h.service.ApproveTaskWithMetadata(c.Request.Context(), currentUser, c.Param("id"), req.Content, req.Metadata)
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -292,7 +311,13 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 }
 
 func (h *TaskHandler) ListAuditLogs(c *gin.Context) {
-	logs, err := h.service.ListTaskAuditLogs(c.Request.Context(), c.Param("id"))
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	logs, err := h.service.ListTaskAuditLogsForUser(c.Request.Context(), currentUser, c.Param("id"))
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
@@ -320,6 +345,7 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrAssigneeInactive):
 		httpapi.WriteError(c, http.StatusBadRequest, "invalid_task_request", err.Error())
 	case errors.Is(err, service.ErrForbiddenAssign),
+		errors.Is(err, service.ErrForbiddenRead),
 		errors.Is(err, service.ErrForbiddenUpdate),
 		errors.Is(err, service.ErrForbiddenStart),
 		errors.Is(err, service.ErrForbiddenSubmit),

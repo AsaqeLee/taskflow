@@ -38,7 +38,19 @@ export interface TaskRecord {
   author_id: string
   type: string
   content: string
+  metadata?: Record<string, string>
   created_at: string
+}
+
+export interface TaskRecordInput {
+  content: string
+  metadata?: Record<string, string>
+}
+
+export interface TaskRecordMetadataField {
+  key: string
+  label: string
+  placeholder: string
 }
 
 export interface AuditLog {

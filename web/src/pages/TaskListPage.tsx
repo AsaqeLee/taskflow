@@ -1,25 +1,20 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { EmptyState } from '../components/EmptyState'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { LoadingState } from '../components/LoadingState'
 import { statusLabel } from '../domain/taskWorkflow'
+import { useAsyncData } from '../hooks/useAsyncData'
 import { fetchTasks } from '../lib/apiClient'
-import type { Task } from '../types/api'
 
 export function TaskListPage() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [error, setError] = useState<unknown>(null)
-  const [loading, setLoading] = useState(true)
+  const tasksState = useAsyncData('tasks', fetchTasks)
 
-  useEffect(() => {
-    fetchTasks()
-      .then(setTasks)
-      .catch(setError)
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) {
-    return <p className="text-slate-600">加载中…</p>
+  if (tasksState.status === 'idle' || tasksState.status === 'loading') {
+    return <LoadingState />
   }
+
+  const tasks = tasksState.data ?? []
+  const error = tasksState.error
 
   return (
     <div className="space-y-4">
@@ -50,7 +45,7 @@ export function TaskListPage() {
             {tasks.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                  暂无任务
+                  <EmptyState message="暂无任务" />
                 </td>
               </tr>
             ) : (

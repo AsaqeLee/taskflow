@@ -32,7 +32,15 @@ func (r *MemoryTaskRecordRepository) Create(ctx context.Context, record domainre
 		r.nextID++
 	}
 	if record.CreatedAt().IsZero() {
-		record = domainrecord.Restore(record.ID(), record.TaskID(), record.AuthorID(), record.Type(), record.Content(), time.Now().UTC())
+		record = domainrecord.RestoreWithMetadata(
+			record.ID(),
+			record.TaskID(),
+			record.AuthorID(),
+			record.Type(),
+			record.Content(),
+			record.Metadata(),
+			time.Now().UTC(),
+		)
 	}
 
 	r.records[record.ID()] = record

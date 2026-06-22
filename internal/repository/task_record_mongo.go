@@ -17,12 +17,13 @@ type MongoTaskRecordRepository struct {
 }
 
 type taskRecordDocument struct {
-	ID        string    `bson:"_id"`
-	TaskID    string    `bson:"task_id"`
-	AuthorID  string    `bson:"author_id"`
-	Type      string    `bson:"type"`
-	Content   string    `bson:"content"`
-	CreatedAt time.Time `bson:"created_at"`
+	ID        string            `bson:"_id"`
+	TaskID    string            `bson:"task_id"`
+	AuthorID  string            `bson:"author_id"`
+	Type      string            `bson:"type"`
+	Content   string            `bson:"content"`
+	Metadata  map[string]string `bson:"metadata,omitempty"`
+	CreatedAt time.Time         `bson:"created_at"`
 }
 
 func NewMongoTaskRecordRepository(collection *mongo.Collection) *MongoTaskRecordRepository {
@@ -39,7 +40,15 @@ func (r *MongoTaskRecordRepository) Create(ctx context.Context, record domainrec
 	createdAt := record.CreatedAt()
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
-		record = domainrecord.Restore(record.ID(), record.TaskID(), record.AuthorID(), record.Type(), record.Content(), createdAt)
+		record = domainrecord.RestoreWithMetadata(
+			record.ID(),
+			record.TaskID(),
+			record.AuthorID(),
+			record.Type(),
+			record.Content(),
+			record.Metadata(),
+			createdAt,
+		)
 	}
 
 	_, err := r.collection.InsertOne(ctx, taskRecordToDocument(record))
@@ -87,12 +96,21 @@ func taskRecordToDocument(record domainrecord.Record) taskRecordDocument {
 		AuthorID:  record.AuthorID(),
 		Type:      record.Type().String(),
 		Content:   record.Content(),
+		Metadata:  record.Metadata(),
 		CreatedAt: record.CreatedAt(),
 	}
 }
 
 func taskRecordDocumentToDomain(doc taskRecordDocument) domainrecord.Record {
-	return domainrecord.Restore(doc.ID, doc.TaskID, doc.AuthorID, domainrecord.Type(doc.Type), doc.Content, doc.CreatedAt)
+	return domainrecord.RestoreWithMetadata(
+		doc.ID,
+		doc.TaskID,
+		doc.AuthorID,
+		domainrecord.Type(doc.Type),
+		doc.Content,
+		doc.Metadata,
+		doc.CreatedAt,
+	)
 }
 
 func (r *MongoTaskRecordRepository) DeleteByTaskID(ctx context.Context, taskID string) error {

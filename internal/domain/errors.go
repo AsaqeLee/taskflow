@@ -8,6 +8,7 @@ var (
 	ErrTooShortTaskTitle              = errors.New("task title must be at least 3 characters")
 	ErrEmptyAssigneeID                = errors.New("assignee id is required")
 	ErrEmptyTaskRecordContent         = errors.New("task record content is required")
+	ErrForbiddenRead                  = errors.New("current user cannot access task")
 	ErrForbiddenUpdate                = errors.New("current user cannot update task")
 	ErrForbiddenAssign                = errors.New("current user cannot assign task")
 	ErrInvalidTaskStatusForAssign     = errors.New("task status does not allow assign")

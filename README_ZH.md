@@ -163,7 +163,7 @@ docker compose up -d --build
 bash scripts/compose_smoke.sh
 ```
 
-部署顺序与 migration 纪律请参考 `DEPLOYMENT.md` 和 `MIGRATIONS.md`。小团队内网 MVP 实施清单见 [`INTRANET_MVP.md`](./INTRANET_MVP.md)。
+部署顺序与 migration 纪律请参考 `DEPLOYMENT.md` 和 `MIGRATIONS.md`。小团队内网发布收口请参考 [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md)、[`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md) 和 [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)。
 </details>
 
 ---

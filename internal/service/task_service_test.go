@@ -313,6 +313,53 @@ func TestSubmitTask_AssigneeCanMoveInProgressTaskToSubmitted(t *testing.T) {
 	}
 }
 
+func TestSubmitTaskWithMetadata_PersistsStructuredFeedback(t *testing.T) {
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	svc := newMemoryTaskService(t, repo, recordRepo, repository.NewMemoryAuditLogRepository())
+	now := time.Now().UTC()
+
+	_, err := repo.Create(context.Background(), domaintask.Restore(
+		"task_010_meta",
+		"Agent submit flow",
+		"test",
+		domaintask.StatusInProgress,
+		"u_owner_001",
+		"u_agent_001",
+		now,
+		now,
+		nil,
+		"",
+	))
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	task, record, err := svc.SubmitTaskWithMetadata(
+		context.Background(),
+		model.User{ID: "u_agent_001", Role: "agent"},
+		"task_010_meta",
+		"Initial automation pass finished",
+		map[string]string{
+			"summary":         "Initial automation pass finished",
+			"blocking_reason": "awaiting owner confirmation",
+		},
+	)
+	if err != nil {
+		t.Fatalf("SubmitTaskWithMetadata returned error: %v", err)
+	}
+
+	if task.Status != domaintask.StatusSubmitted.String() {
+		t.Fatalf("expected status %q, got %q", domaintask.StatusSubmitted.String(), task.Status)
+	}
+	if record.Metadata["summary"] != "Initial automation pass finished" {
+		t.Fatalf("expected metadata summary to be persisted, got %+v", record.Metadata)
+	}
+	if record.Metadata["blocking_reason"] != "awaiting owner confirmation" {
+		t.Fatalf("expected blocking_reason metadata to be persisted, got %+v", record.Metadata)
+	}
+}
+
 func TestSubmitTask_RejectsNonAssignee(t *testing.T) {
 	repo := repository.NewMemoryTaskRepository()
 	recordRepo := repository.NewMemoryTaskRecordRepository()

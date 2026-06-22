@@ -1,23 +1,18 @@
-import { useEffect, useState } from 'react'
+import { EmptyState } from '../components/EmptyState'
 import { ErrorAlert } from '../components/ErrorAlert'
+import { LoadingState } from '../components/LoadingState'
+import { useAsyncData } from '../hooks/useAsyncData'
 import { fetchMe } from '../lib/apiClient'
-import type { User } from '../types/api'
 
 export function MePage() {
-  const [user, setUser] = useState<User | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [loading, setLoading] = useState(true)
+  const meState = useAsyncData('me', fetchMe)
 
-  useEffect(() => {
-    fetchMe()
-      .then(setUser)
-      .catch(setError)
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) {
-    return <p className="text-slate-600">加载中…</p>
+  if (meState.status === 'idle' || meState.status === 'loading') {
+    return <LoadingState />
   }
+
+  const user = meState.data
+  const error = meState.error
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -42,7 +37,9 @@ export function MePage() {
             <dd className="sm:col-span-2">{user.active ? '活跃' : '已禁用'}</dd>
           </div>
         </dl>
-      ) : null}
+      ) : (
+        <EmptyState message="暂无用户信息" />
+      )}
     </div>
   )
 }

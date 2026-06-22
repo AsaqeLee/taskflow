@@ -21,6 +21,7 @@ var (
 	ErrTooShortTaskTitle              = domain.ErrTooShortTaskTitle
 	ErrEmptyAssigneeID                = domain.ErrEmptyAssigneeID
 	ErrEmptyTaskRecordContent         = domain.ErrEmptyTaskRecordContent
+	ErrForbiddenRead                  = domain.ErrForbiddenRead
 	ErrForbiddenUpdate                = domain.ErrForbiddenUpdate
 	ErrForbiddenAssign                = domain.ErrForbiddenAssign
 	ErrInvalidTaskStatusForAssign     = domain.ErrInvalidTaskStatusForAssign
@@ -122,12 +123,46 @@ func (s *TaskService) GetTask(ctx context.Context, id string) (model.Task, error
 	return model.TaskFromDomain(task), nil
 }
 
+func (s *TaskService) GetTaskForUser(ctx context.Context, currentUser model.User, id string) (model.Task, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return model.Task{}, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return model.Task{}, err
+	}
+	if !canReadTask(task, currentUser) {
+		return model.Task{}, ErrForbiddenRead
+	}
+	return model.TaskFromDomain(task), nil
+}
+
 func (s *TaskService) ListTasks(ctx context.Context) ([]model.Task, error) {
 	tasks, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return model.TasksFromDomain(tasks), nil
+}
+
+func (s *TaskService) ListTasksForUser(ctx context.Context, currentUser model.User) ([]model.Task, error) {
+	tasks, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if isOwner(currentUser) {
+		return model.TasksFromDomain(tasks), nil
+	}
+
+	filtered := make([]domaintask.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if canReadTask(task, currentUser) {
+			filtered = append(filtered, task)
+		}
+	}
+	return model.TasksFromDomain(filtered), nil
 }
 
 func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
@@ -138,6 +173,27 @@ func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]mod
 
 	if _, err := s.repo.GetByIDIncludingDeleted(ctx, taskID); err != nil {
 		return nil, err
+	}
+
+	records, err := s.recordRepo.ListByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return model.TaskRecordsFromDomain(records), nil
+}
+
+func (s *TaskService) ListTaskRecordsForUser(ctx context.Context, currentUser model.User, taskID string) ([]model.TaskRecord, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByIDIncludingDeleted(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if !canReadTask(task, currentUser) {
+		return nil, ErrForbiddenRead
 	}
 
 	records, err := s.recordRepo.ListByTaskID(ctx, taskID)
@@ -216,8 +272,22 @@ func (s *TaskService) StartTask(ctx context.Context, currentUser model.User, tas
 }
 
 func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	return s.SubmitTaskWithMetadata(ctx, currentUser, taskID, content, nil)
+}
+
+func (s *TaskService) SubmitTaskWithMetadata(
+	ctx context.Context,
+	currentUser model.User,
+	taskID,
+	content string,
+	metadata map[string]string,
+) (model.Task, model.TaskRecord, error) {
 	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
-		return task.Submit(actor, content, at)
+		change, err := task.Submit(actor, content, at)
+		if err != nil {
+			return domaintask.Transition{}, err
+		}
+		return change.WithRecordMetadata(metadata), nil
 	}, currentUser)
 	if err != nil {
 		return model.Task{}, model.TaskRecord{}, err
@@ -226,8 +296,22 @@ func (s *TaskService) SubmitTask(ctx context.Context, currentUser model.User, ta
 }
 
 func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	return s.RejectTaskWithMetadata(ctx, currentUser, taskID, content, nil)
+}
+
+func (s *TaskService) RejectTaskWithMetadata(
+	ctx context.Context,
+	currentUser model.User,
+	taskID,
+	content string,
+	metadata map[string]string,
+) (model.Task, model.TaskRecord, error) {
 	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
-		return task.Reject(actor, content, at)
+		change, err := task.Reject(actor, content, at)
+		if err != nil {
+			return domaintask.Transition{}, err
+		}
+		return change.WithRecordMetadata(metadata), nil
 	}, currentUser)
 	if err != nil {
 		return model.Task{}, model.TaskRecord{}, err
@@ -236,8 +320,22 @@ func (s *TaskService) RejectTask(ctx context.Context, currentUser model.User, ta
 }
 
 func (s *TaskService) ApproveTask(ctx context.Context, currentUser model.User, taskID, content string) (model.Task, model.TaskRecord, error) {
+	return s.ApproveTaskWithMetadata(ctx, currentUser, taskID, content, nil)
+}
+
+func (s *TaskService) ApproveTaskWithMetadata(
+	ctx context.Context,
+	currentUser model.User,
+	taskID,
+	content string,
+	metadata map[string]string,
+) (model.Task, model.TaskRecord, error) {
 	task, record, err := s.runTransitionWithRecord(ctx, taskID, func(_ context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error) {
-		return task.Approve(actor, content, at)
+		change, err := task.Approve(actor, content, at)
+		if err != nil {
+			return domaintask.Transition{}, err
+		}
+		return change.WithRecordMetadata(metadata), nil
 	}, currentUser)
 	if err != nil {
 		return model.Task{}, model.TaskRecord{}, err
@@ -322,6 +420,27 @@ func (s *TaskService) ListTaskAuditLogs(ctx context.Context, taskID string) ([]m
 	return model.AuditLogsFromDomain(logs), nil
 }
 
+func (s *TaskService) ListTaskAuditLogsForUser(ctx context.Context, currentUser model.User, taskID string) ([]model.AuditLog, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, ErrInvalidTaskID
+	}
+
+	task, err := s.repo.GetByIDIncludingDeleted(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if !canReadTask(task, currentUser) {
+		return nil, ErrForbiddenRead
+	}
+
+	logs, err := s.auditRepo.ListByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return model.AuditLogsFromDomain(logs), nil
+}
+
 type transitionFunc func(ctx context.Context, task *domaintask.Task, actor domainuser.Actor, at time.Time) (domaintask.Transition, error)
 
 func (s *TaskService) runTransition(
@@ -386,4 +505,16 @@ func (s *TaskService) runTransitionWithRecord(
 		return model.TaskFromDomain(updatedTask), model.TaskRecordFromDomain(savedRecord), nil
 	}
 	return model.TaskFromDomain(updatedTask), model.TaskRecord{}, nil
+}
+
+func canReadTask(task domaintask.Task, currentUser model.User) bool {
+	if isOwner(currentUser) {
+		return true
+	}
+	return task.CreatorID() == currentUser.ID || task.AssigneeID() == currentUser.ID
+}
+
+func isOwner(currentUser model.User) bool {
+	role, err := domainuser.ParseRole(currentUser.Role)
+	return err == nil && role.IsOwner()
 }

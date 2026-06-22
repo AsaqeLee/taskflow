@@ -153,7 +153,7 @@ Rollback remains low risk because deletes are soft deletes and the current migra
 
 ## Intranet MVP Rollout
 
-For a small-team internal deployment checklist (bootstrap users, CORS, user list API, minimal frontend, backup), see [`INTRANET_MVP.md`](./INTRANET_MVP.md).
+For small-team internal rollout and release gating, see [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md), [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md), and [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md).
 
 ## Current Limitations
 

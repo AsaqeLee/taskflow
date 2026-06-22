@@ -163,7 +163,7 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	r.Use(middleware.FixedTestUser())
 	r.POST("/tasks/:id/submit", h.Submit)
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks/task_110/submit", strings.NewReader(`{"content":"Delivered the requested output"}`))
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_110/submit", strings.NewReader(`{"content":"Delivered the requested output","metadata":{"summary":"Documentation delivered","failure_reason":"none"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -188,6 +188,9 @@ func TestTaskHandler_SubmitReturnsUpdatedTask(t *testing.T) {
 	}
 	if resp.Record.Content != "Delivered the requested output" {
 		t.Fatalf("unexpected record content %q", resp.Record.Content)
+	}
+	if resp.Record.Metadata["summary"] != "Documentation delivered" {
+		t.Fatalf("expected metadata summary to round-trip, got %+v", resp.Record.Metadata)
 	}
 }
 

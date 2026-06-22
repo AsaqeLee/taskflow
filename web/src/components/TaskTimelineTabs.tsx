@@ -43,6 +43,12 @@ export function TaskTimelineTabs({
                   {record.type} · {record.author_id}
                 </p>
                 <p className="mt-1 text-slate-700">{record.content}</p>
+                {formatMetadataEntries(record.metadata).map(([key, value]) => (
+                  <p key={key} className="mt-1 text-slate-600">
+                    <span className="font-medium">{metadataLabel(key)}：</span>
+                    {value}
+                  </p>
+                ))}
                 <p className="mt-1 text-xs text-slate-500">
                   {new Date(record.created_at).toLocaleString()}
                 </p>
@@ -69,4 +75,32 @@ export function TaskTimelineTabs({
       </div>
     </div>
   )
+}
+
+function formatMetadataEntries(metadata?: Record<string, string>): Array<[string, string]> {
+  if (!metadata) return []
+
+  const preferredOrder = ['summary', 'blocking_reason', 'failure_reason', 'review_note']
+  const entries = Object.entries(metadata)
+
+  entries.sort(([left], [right]) => {
+    const leftIndex = preferredOrder.indexOf(left)
+    const rightIndex = preferredOrder.indexOf(right)
+    if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right)
+    if (leftIndex === -1) return 1
+    if (rightIndex === -1) return -1
+    return leftIndex - rightIndex
+  })
+
+  return entries
+}
+
+function metadataLabel(key: string): string {
+  const labels: Record<string, string> = {
+    summary: '摘要',
+    blocking_reason: '阻塞说明',
+    failure_reason: '失败原因',
+    review_note: '审核意见',
+  }
+  return labels[key] ?? key
 }

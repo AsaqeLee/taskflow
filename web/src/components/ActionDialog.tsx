@@ -1,21 +1,24 @@
 import { useId, useState } from 'react'
-import type { TaskAction } from '../types/api'
+import type { TaskAction, TaskRecordInput, TaskRecordMetadataField } from '../types/api'
 import { actionLabel } from '../domain/taskWorkflow'
 
 interface ActionDialogProps {
   action: TaskAction | null
   needsContent: boolean
+  metadataFields?: TaskRecordMetadataField[]
   onClose: () => void
-  onConfirm: (content: string) => Promise<void>
+  onConfirm: (payload: TaskRecordInput) => Promise<void>
 }
 
 export function ActionDialog({
   action,
   needsContent,
+  metadataFields = [],
   onClose,
   onConfirm,
 }: ActionDialogProps) {
   const [content, setContent] = useState('')
+  const [metadata, setMetadata] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const titleId = useId()
@@ -34,8 +37,12 @@ export function ActionDialog({
     setSubmitting(true)
     setError(null)
     try {
-      await onConfirm(content.trim())
+      await onConfirm({
+        content: content.trim(),
+        metadata: sanitizeMetadata(metadata),
+      })
       setContent('')
+      setMetadata({})
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败')
@@ -58,13 +65,34 @@ export function ActionDialog({
           {actionLabel(action)}
         </h3>
         {needsContent ? (
-          <textarea
-            className="mt-4 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            rows={4}
-            placeholder="填写说明（必填）"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-          />
+          <div className="mt-4 space-y-3">
+            <textarea
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              rows={4}
+              placeholder="填写说明（必填）"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+            />
+            {metadataFields.map((field) => (
+              <div key={field.key}>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  {field.label}
+                </label>
+                <textarea
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder={field.placeholder}
+                  value={metadata[field.key] ?? ''}
+                  onChange={(e) =>
+                    setMetadata((current) => ({
+                      ...current,
+                      [field.key]: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
         ) : (
           <p id={descriptionId} className="mt-2 text-sm text-slate-600">
             确认执行此操作？
@@ -92,4 +120,16 @@ export function ActionDialog({
       </form>
     </div>
   )
+}
+
+function sanitizeMetadata(metadata: Record<string, string>): Record<string, string> | undefined {
+  const normalized = Object.entries(metadata).reduce<Record<string, string>>((result, [key, value]) => {
+    const trimmedValue = value.trim()
+    if (trimmedValue) {
+      result[key] = trimmedValue
+    }
+    return result
+  }, {})
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined
 }

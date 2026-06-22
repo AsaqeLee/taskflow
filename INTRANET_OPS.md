@@ -1,6 +1,6 @@
 # TaskFlow 内网运维速查
 
-一页纸运维手册，配合 `INTRANET_MVP.md`、`INTRANET_RUNBOOK.md`、`ACCEPTANCE_TESTING.md` 使用。
+一页纸运维手册，配合 `INTRANET_RELEASE_CHECKLIST.md`、`INTRANET_RUNBOOK.md`、`ACCEPTANCE_TESTING.md` 使用。
 
 ## 日常巡检
 

@@ -63,6 +63,21 @@ func (t Transition) Record() *record.Draft {
 	return draft
 }
 
+// WithRecordMetadata enriches the collaboration draft attached to a transition.
+func (t Transition) WithRecordMetadata(metadata map[string]string) Transition {
+	events := make([]event.Event, 0, len(t.Events))
+	for _, evt := range t.Events {
+		if drafted, ok := evt.(RecordDraftedEvent); ok {
+			drafted.Draft = drafted.Draft.WithMetadata(metadata)
+			events = append(events, drafted)
+			continue
+		}
+		events = append(events, evt)
+	}
+	t.Events = events
+	return t
+}
+
 // Bind fills transition metadata that is only known after persistence.
 func (t Transition) Bind(taskID, actorID string) Transition {
 	events := make([]event.Event, 0, len(t.Events))

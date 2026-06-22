@@ -9,6 +9,7 @@ import type {
   AuditLog,
   SessionResponse,
   Task,
+  TaskRecordInput,
   TaskRecord,
   User,
 } from '../types/api'
@@ -182,26 +183,26 @@ export async function startTask(id: string): Promise<Task> {
   return body.task
 }
 
-export async function submitTask(id: string, content: string): Promise<Task> {
+export async function submitTask(id: string, input: TaskRecordInput): Promise<Task> {
   const body = await request<{ task: Task }>(`/tasks/${id}/submit`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(input),
   })
   return body.task
 }
 
-export async function rejectTask(id: string, content: string): Promise<Task> {
+export async function rejectTask(id: string, input: TaskRecordInput): Promise<Task> {
   const body = await request<{ task: Task }>(`/tasks/${id}/reject`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(input),
   })
   return body.task
 }
 
-export async function approveTask(id: string, content: string): Promise<Task> {
+export async function approveTask(id: string, input: TaskRecordInput): Promise<Task> {
   const body = await request<{ task: Task }>(`/tasks/${id}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(input),
   })
   return body.task
 }
