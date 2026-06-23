@@ -23,12 +23,15 @@ scripts/*
 !scripts/web_build_smoke.sh
 !scripts/perf_smoke.js
 !scripts/restore_mongo.sh
+!scripts/backup_healthcheck.sh
 !scripts/rollback_image.sh
 !scripts/security_audit.sh
 !scripts/users.example.json
 !scripts/validate_production_env.sh
 !scripts/release_candidate_check.sh
 !scripts/web_acceptance_smoke.sh
+!scripts/monitoring_smoke.sh
+!scripts/nginx_smoke.sh
 !scripts/init_pilot_env.sh
 !scripts/read_bootstrap_credentials.sh
 !scripts/compose_env.sh

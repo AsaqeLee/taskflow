@@ -123,7 +123,7 @@ services:
       migrate:
         condition: service_completed_successfully
       bootstrap:
-        condition: service_completed_successfully
+        condition: service_started
     environment:
       <<: *runtime-env
       # Leave empty for same-origin nginx (`--profile full`) or Vite dev proxy.
@@ -148,6 +148,37 @@ services:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "${WEB_PORT:-8081}:80"
+
+  alertmanager:
+    profiles: ["monitoring"]
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    depends_on:
+      taskflow:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus-alerts.yml:/etc/prometheus/alert.rules.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
 
 volumes:
   taskflow_mongo_data:

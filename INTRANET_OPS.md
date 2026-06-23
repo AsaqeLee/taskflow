@@ -6,16 +6,20 @@
 
 ```bash
 docker compose ps
+docker compose --profile monitoring ps
 curl -s http://localhost:8080/readyz
 curl -s http://localhost:8080/metrics | head
+curl -sf http://localhost:9090/-/ready
+curl -sf http://localhost:9093/-/ready
 ```
 
-关注：`readyz` 非 200、Mongo 容器重启、磁盘占用。
+关注：`readyz` 非 200、Mongo 容器重启、磁盘占用、Prometheus 无法 scrape `taskflow`。
 
 ## 重启服务
 
 ```bash
 docker compose restart taskflow
+docker compose --profile full restart web
 ```
 
 Mongo 数据在 volume `taskflow_mongo_data`，重启 taskflow 不丢数据。
@@ -26,23 +30,35 @@ Mongo 数据在 volume `taskflow_mongo_data`，重启 taskflow 不丢数据。
 git pull
 docker compose build taskflow
 docker compose up -d migrate taskflow
+bash scripts/nginx_smoke.sh
 ```
 
-migrate 服务幂等；升级后确认 `/readyz` 与核心流程。
+`migrate` 服务幂等；升级后确认 `/readyz`、同域入口与核心流程。
+
+## 监控基线
+
+```bash
+docker compose --profile monitoring up -d
+bash scripts/monitoring_smoke.sh
+```
+
+Prometheus 默认暴露在 `9090`，Alertmanager 默认暴露在 `9093`。
 
 ## 首批用户 / 加新用户
 
 **冷启动（无用户）：**
 
 ```bash
-cp .env.intranet.example .env   # 填写 JWT_SECRET / APP_VERSION / BOOTSTRAP_USERS_FILE
+cp .env.intranet.example .env
 cp scripts/users.example.json scripts/users.intranet.json
 # 修改 scripts/users.intranet.json 中每个默认密码
 bash scripts/validate_production_env.sh .env
-docker compose up -d --build    # migrate → bootstrap（自动）→ taskflow
+docker compose up -d --build
 ```
 
-`docker-compose.yml` 已包含 `bootstrap` one-shot 服务，现在会读取 `.env` 中的 `BOOTSTRAP_USERS_FILE`。本地/CI 默认值仍是 `scripts/users.example.json`，生产请改成你自己的文件，例如 `./scripts/users.intranet.json`。如需在本机单独执行：
+`docker-compose.yml` 已包含 `bootstrap` one-shot 服务，会读取 `.env` 中的 `BOOTSTRAP_USERS_FILE`。本地 / CI 默认值仍是 `scripts/users.example.json`，生产请改成你自己的文件，例如 `./scripts/users.intranet.json`。
+
+如需在本机单独执行：
 
 ```bash
 USERS_FILE=./my-users.json ./scripts/bootstrap_users.sh
@@ -51,7 +67,6 @@ USERS_FILE=./my-users.json ./scripts/bootstrap_users.sh
 **已有 owner 后加成员：**
 
 ```bash
-# owner 登录拿 token
 curl -s -X POST http://<host>:8080/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"id":"u_owner","password":"<password>"}'
@@ -64,7 +79,7 @@ curl -X POST http://<host>:8080/users \
 
 `ALLOW_PUBLIC_REGISTER=false` 时匿名无法注册。
 
-## 验收脚本（API 级）
+## 验收脚本
 
 ```bash
 # 完整冷启动 + 全流程 + 重启保数据 + 备份恢复
@@ -72,29 +87,36 @@ COLD_START=1 ./scripts/intranet_acceptance.sh
 
 # 已有 stack 上增量验收（不删 volume）
 ./scripts/intranet_acceptance.sh
-```
 
-P3-13 浏览器双人演练仍需人工：`cd web && npm run dev`，分别用 `u_owner` / `u_alice` 登录走 UI。
+# 浏览器与响应式
+./scripts/web_acceptance_smoke.sh
+
+# 同域 nginx / 监控 profile
+./scripts/nginx_smoke.sh
+./scripts/monitoring_smoke.sh
+```
 
 ## 备份与恢复
 
 ```bash
-# 方式 A：主机脚本（需安装 mongodump）
+# 方式 A：优先使用主机工具，缺失时可切换为 compose
 MONGODB_URI='mongodb://localhost:27018/?replicaSet=rs0' ./scripts/backup_mongo.sh
 
-# 方式 B：经 mongo 容器（compose 环境推荐）
-docker compose exec -T mongo mongodump \
-  --uri='mongodb://127.0.0.1:27017/?replicaSet=rs0' \
-  --db=taskflow --archive --gzip > backups/taskflow-$(date +%Y%m%d).gz
+# 方式 B：显式走 compose 容器
+BACKUP_TOOL=compose ./scripts/backup_mongo.sh
+
+# 校验最近备份是否新鲜且可校验
+./scripts/backup_healthcheck.sh
 
 # 恢复（--drop 会先删库内集合）
-MONGODB_URI='mongodb://localhost:27018/?replicaSet=rs0' ./scripts/restore_mongo.sh backups/taskflow-YYYYMMDD-HHMMSS.gz --drop
+RESTORE_TOOL=compose ./scripts/restore_mongo.sh backups/taskflow-YYYYMMDD-HHMMSS.gz --drop
 ```
 
-**cron 示例（每日 02:00）：**
+**cron 示例（每日 02:00 备份，02:15 校验）：**
 
 ```cron
-0 2 * * * cd /opt/taskflow && MONGODB_URI='mongodb://127.0.0.1:27018/?replicaSet=rs0' ./scripts/backup_mongo.sh >> /var/log/taskflow-backup.log 2>&1
+0 2 * * * cd /opt/taskflow && BACKUP_TOOL=compose ./scripts/backup_mongo.sh >> /var/log/taskflow-backup.log 2>&1
+15 2 * * * cd /opt/taskflow && ./scripts/backup_healthcheck.sh >> /var/log/taskflow-backup.log 2>&1
 ```
 
 ## 忘密码
@@ -109,7 +131,9 @@ MVP 期无自助重置页面：由 owner 禁用账号后重建，或第二期接
 | 5xx | 响应体 `request_id`，对照服务日志 |
 | Mongo 连不上 | `docker compose logs mongo`、`rs.status()` |
 | CORS 错误 | `CORS_ALLOWED_ORIGINS` 是否含前端 origin |
+| `/api` 正常但首页异常 | `docker compose logs web`、`bash scripts/nginx_smoke.sh` |
+| 监控页面空白 | `docker compose logs prometheus alertmanager`、`bash scripts/monitoring_smoke.sh` |
 
 ## 默认账号安全
 
-bootstrap 脚本创建的临时密码仅用于首次登录，**首次登录后请修改密码**（第二期提供 UI；MVP 可用 API 或 owner 重建）。
+bootstrap 脚本创建的临时密码仅用于首次登录。MVP 期可由 owner 通过 API 重建账号；正式环境建议尽快切到企业身份源。

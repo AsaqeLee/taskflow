@@ -4,11 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_DIR="$ROOT/web"
 
-if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
-  # shellcheck disable=SC1091
-  source "$ROOT/scripts/compose_env.sh"
-  load_compose_context
-fi
+# shellcheck disable=SC1091
+source "$ROOT/scripts/compose_env.sh"
+load_compose_context
 WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:5173}"
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
 # Always use the Vite dev port here; do not inherit WEB_PORT from compose pilot env.

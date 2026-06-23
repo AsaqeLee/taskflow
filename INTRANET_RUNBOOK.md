@@ -1,6 +1,6 @@
 # TaskFlow 内网首次上线 Runbook
 
-面向第一次在内网主机部署 TaskFlow 的运维/开发同事。预计耗时 **30–60 分钟**。
+面向第一次在内网主机部署 TaskFlow 的运维 / 开发同事。预计耗时 **30–60 分钟**。
 
 ## 前置条件
 
@@ -10,7 +10,7 @@
 
 ## 步骤 1：准备环境变量
 
-**快捷方式（推荐本地/试点）：**
+**快捷方式（推荐本地 / 试点）：**
 
 ```bash
 bash scripts/init_pilot_env.sh
@@ -45,8 +45,6 @@ cp scripts/users.example.json scripts/users.intranet.json
 CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
 
-`docker-compose.yml` 现在会直接读取这些 `.env` 参数，不再把 `JWT_SECRET`、`APP_VERSION`、`CORS_ALLOWED_ORIGINS` 和 bootstrap 用户文件写死成 `compose-local` 默认值。
-
 启动前先校验生产参数：
 
 ```bash
@@ -59,20 +57,24 @@ bash scripts/release_candidate_check.sh .env
 ```bash
 bash scripts/web_build_smoke.sh
 docker compose up -d --build
+docker compose --profile monitoring up -d
 ```
 
 启动顺序：`mongo` → `mongo-init` → `migrate` → `bootstrap` → `taskflow`。
+监控附加服务：`alertmanager` → `prometheus`。
 
 确认健康：
 
 ```bash
 curl -sf http://127.0.0.1:8080/readyz
+curl -sf http://127.0.0.1:9090/-/ready
+curl -sf http://127.0.0.1:9093/-/ready
 docker compose ps
 ```
 
 ## 步骤 3：验证首批用户
 
-默认账号来自 `BOOTSTRAP_USERS_FILE` 指向的文件。若你按上一步复制了 `scripts/users.intranet.json`，这里应以那个文件为准。仓库默认示例 `scripts/users.example.json` 只用于本地/CI。
+默认账号来自 `BOOTSTRAP_USERS_FILE` 指向的文件。仓库默认示例 `scripts/users.example.json` 只用于本地 / CI。
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/auth/login \
@@ -90,31 +92,57 @@ curl -s -X POST http://127.0.0.1:8080/auth/login \
 
 # 完整冷启动验收（会 docker compose down -v）
 COLD_START=1 ./scripts/intranet_acceptance.sh
+
+# 浏览器 / 响应式
+./scripts/web_acceptance_smoke.sh
+
+# 监控与同域 nginx
+./scripts/monitoring_smoke.sh
+./scripts/nginx_smoke.sh
 ```
 
 详见 [ACCEPTANCE_TESTING.md](./ACCEPTANCE_TESTING.md)。
 
-## 步骤 5：启动前端（开发/演示）
+## 步骤 5：前端入口选择
+
+**开发模式：**
 
 ```bash
 cd web && npm ci && npm run dev
 # 浏览器打开 http://localhost:5173
 ```
 
-生产静态资源：`cd web && npm run build`，将 `web/dist` 交由 Nginx 同域托管或反代。
+**试点预览：**
+
+```bash
+npm --prefix web run preview -- --host 0.0.0.0 --port 8081
+```
+
+**生产 nginx：**
+
+```bash
+docker compose --profile full up -d
+bash scripts/nginx_smoke.sh
+```
+
+生产静态资源始终来自 `web/dist`。
 
 ## 步骤 6：配置备份
 
 ```bash
-mkdir -p backups
-docker compose exec -T mongo mongodump \
-  --uri='mongodb://127.0.0.1:27017/?replicaSet=rs0' \
-  --db=taskflow --archive --gzip > backups/taskflow-$(date +%Y%m%d).gz
+BACKUP_TOOL=compose ./scripts/backup_mongo.sh
+./scripts/backup_healthcheck.sh
+```
+
+恢复演练：
+
+```bash
+RESTORE_TOOL=compose ./scripts/restore_mongo.sh backups/taskflow-YYYYMMDD-HHMMSS.gz --drop
 ```
 
 演练记录模板：`reports/backup-restore-evidence-template.md`。
 
-## 步骤 7：HTTPS 与反代（推荐）
+## 步骤 7：HTTPS 与反代
 
 最小 Nginx 思路：
 
@@ -125,6 +153,7 @@ https://taskflow.internal/
 ```
 
 同域部署可省略 CORS。防火墙仅放行内网到 443。
+若已有正式证书挂载，TLS 配置可从 `deploy/nginx.tls.conf.example` 起步；本地 compose 默认仍使用 `deploy/nginx.conf` 的 HTTP 同域入口。
 
 ## 升级与回滚
 
@@ -135,6 +164,7 @@ git pull
 docker compose build taskflow
 docker compose up -d migrate bootstrap taskflow
 ./scripts/intranet_acceptance.sh
+./scripts/nginx_smoke.sh
 ```
 
 **回滚：**
@@ -154,7 +184,8 @@ docker compose up -d taskflow
 | `/readyz` 非 200 | `docker compose logs taskflow mongo` |
 | 登录 401 | 检查 bootstrap 是否成功、`docker compose logs bootstrap` |
 | CORS 错误 | 检查 `CORS_ALLOWED_ORIGINS` 与浏览器 origin |
-| 5xx | 响应 JSON 中的 `request_id` → 对照 taskflow 日志 |
+| 5xx | 响应 JSON 中的 `request_id`，对照 taskflow 日志 |
+| Prometheus 无数据 | `docker compose logs prometheus alertmanager` |
 
 ## MVP 范围提醒
 

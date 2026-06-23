@@ -101,7 +101,10 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Validate compose config
-        run: docker compose config >/dev/null
+        run: |
+          docker compose config >/dev/null
+          docker compose --profile full config >/dev/null
+          docker compose --profile monitoring config >/dev/null
 
       - name: Validate production env guardrails
         run: |
@@ -154,8 +157,24 @@ jobs:
       - name: Frontend production bundle smoke
         run: bash scripts/web_build_smoke.sh
 
+      - name: Release governance audit
+        run: SKIP_GO_TEST=true bash scripts/security_audit.sh
+
       - name: Compose build and smoke
         run: bash scripts/compose_smoke.sh
+
+      - name: Backup integrity smoke
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          BACKUP_TOOL=compose BACKUP_DIR="$tmpdir" bash scripts/backup_mongo.sh
+          BACKUP_DIR="$tmpdir" bash scripts/backup_healthcheck.sh
+
+      - name: Monitoring profile smoke
+        run: bash scripts/monitoring_smoke.sh
+
+      - name: Nginx same-origin smoke
+        run: bash scripts/nginx_smoke.sh
 
       - name: Intranet acceptance (incremental)
         run: bash scripts/intranet_acceptance.sh
@@ -167,7 +186,7 @@ jobs:
         if: failure()
         run: |
           docker compose ps || true
-          docker compose logs --no-color mongo mongo-init migrate taskflow otel-collector || true
+          docker compose logs --no-color mongo mongo-init migrate taskflow otel-collector web prometheus alertmanager || true
 
       - name: Compose cleanup
         if: always()

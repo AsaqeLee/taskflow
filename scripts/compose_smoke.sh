@@ -4,18 +4,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT/scripts/compose_env.sh"
-if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
-  load_compose_context
-else
-  refresh_compose_args
-fi
+load_compose_context
 
 base_url="${BASE_URL:-http://127.0.0.1:8080}"
 max_attempts="${STACK_READY_RETRIES:-30}"
 sleep_seconds="${STACK_READY_SLEEP_SECONDS:-3}"
 
 refresh_compose_args
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
+compose_cmd up -d --build
+wait_compose_log bootstrap "bootstrap completed" 40 2 || {
+  echo "[compose-smoke] bootstrap did not report completion" >&2
+  exit 1
+}
 
 for ((attempt = 1; attempt <= max_attempts; attempt++)); do
   if curl --silent --fail "${base_url}/readyz" >/dev/null; then
@@ -27,10 +27,17 @@ done
 user_id="${STACK_USER_ID:-u_owner}"
 password="${STACK_USER_PASSWORD:-change-me-owner-123}"
 
-login_status="$(curl --silent --show-error -o /tmp/taskflow_login_response.json -w '%{http_code}' \
-  -X POST "${base_url}/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d "{\"id\":\"${user_id}\",\"password\":\"${password}\"}")"
+login_status=""
+for attempt in $(seq 1 5); do
+  login_status="$(curl --silent --show-error -o /tmp/taskflow_login_response.json -w '%{http_code}' \
+    -X POST "${base_url}/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"id\":\"${user_id}\",\"password\":\"${password}\"}")"
+  if [[ "${login_status}" == "200" ]]; then
+    break
+  fi
+  sleep 2
+done
 
 if [[ "${login_status}" != "200" ]]; then
   echo "[compose-smoke] login failed with status ${login_status}" >&2

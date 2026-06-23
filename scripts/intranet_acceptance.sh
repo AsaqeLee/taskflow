@@ -7,11 +7,7 @@ cd "$ROOT"
 
 # shellcheck disable=SC1091
 source "$ROOT/scripts/compose_env.sh"
-if [[ -n "${COMPOSE_ENV_FILE:-${ENV_FILE:-}}" ]]; then
-  load_compose_context
-else
-  refresh_compose_args
-fi
+load_compose_context
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 MONGO_URI="${MONGODB_URI:-mongodb://127.0.0.1:27018/?replicaSet=rs0}"
@@ -51,23 +47,31 @@ wait_ready() {
 
 login() {
   local user_id="$1" password="$2" out="$3"
-  local status
-  status="$(curl -sS -o "$out" -w '%{http_code}' \
-    -X POST "${BASE_URL}/auth/login" \
-    -H 'Content-Type: application/json' \
-    -d "{\"id\":\"${user_id}\",\"password\":\"${password}\"}")"
+  local status=""
+  local attempt
+  for attempt in $(seq 1 5); do
+    status="$(curl -sS -o "$out" -w '%{http_code}' \
+      -X POST "${BASE_URL}/auth/login" \
+      -H 'Content-Type: application/json' \
+      -d "{\"id\":\"${user_id}\",\"password\":\"${password}\"}")"
+    if [[ "$status" == "200" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
   [[ "$status" == "200" ]] || fail "login ${user_id} returned ${status}"
 }
 
 if [[ "$COLD_START" == "1" ]]; then
   log "P3-10 cold start: docker compose down -v"
   refresh_compose_args
-  docker compose "${COMPOSE_ARGS[@]}" down -v
+  compose_cmd down -v
 fi
 
 log "starting stack (migrate + bootstrap + taskflow)"
 refresh_compose_args
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
+compose_cmd up -d --build
+wait_compose_log bootstrap "bootstrap completed" 40 2 || fail "bootstrap did not report completion"
 wait_ready
 
 log "P3-10: bootstrap users can login"

@@ -43,7 +43,8 @@ if [[ ! -f "$ROOT/web/dist/index.html" ]]; then
 fi
 
 refresh_compose_args
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
+compose_cmd up -d --build
+wait_compose_log bootstrap "bootstrap completed" 40 2 || fail "bootstrap did not report completion"
 
 for attempt in {1..40}; do
   if curl -sf "http://127.0.0.1:8080/readyz" >/dev/null 2>&1; then
@@ -75,10 +76,17 @@ curl -sf "${BASE_URL}/" >/dev/null || {
   fail "preview server not ready at ${BASE_URL}"
 }
 
-login_status="$(curl -sS -o /tmp/taskflow_pilot_login.json -w '%{http_code}' \
-  -X POST "${BASE_URL}/api/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d "{\"id\":\"${OWNER_ID}\",\"password\":\"${OWNER_PASS}\"}")"
+login_status=""
+for attempt in $(seq 1 5); do
+  login_status="$(curl -sS -o /tmp/taskflow_pilot_login.json -w '%{http_code}' \
+    -X POST "${BASE_URL}/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"id\":\"${OWNER_ID}\",\"password\":\"${OWNER_PASS}\"}")"
+  if [[ "$login_status" == "200" ]]; then
+    break
+  fi
+  sleep 2
+done
 [[ "$login_status" == "200" ]] || fail "login via preview /api proxy returned ${login_status}"
 
 log "PASS: production bundle + proxied API login succeeded at ${BASE_URL}"

@@ -1,0 +1,38 @@
+groups:
+  - name: taskflow-runtime
+    rules:
+      - alert: TaskflowDown
+        expr: up{job="taskflow"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: TaskFlow metrics endpoint is unreachable
+          description: Prometheus has not been able to scrape the taskflow job for 2 minutes.
+
+      - alert: TaskflowHigh5xxRate
+        expr: sum(rate(http_requests_total{job="taskflow",status=~"5.."}[5m])) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: TaskFlow is returning sustained 5xx responses
+          description: The aggregated 5xx request rate is above 0.10 req/s for 10 minutes.
+
+      - alert: TaskflowLoginRateLimitSpike
+        expr: increase(taskflow_rate_limit_decisions_total{scope="auth_login",decision="rejected"}[10m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Login rate-limit rejections spiked
+          description: More than 20 login requests were rejected by the auth rate limiter in 10 minutes.
+
+      - alert: TaskflowProcessRestarted
+        expr: changes(taskflow_process_start_time_seconds{job="taskflow"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: TaskFlow process restarted recently
+          description: The TaskFlow process start time changed within the last 15 minutes.
