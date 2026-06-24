@@ -2,41 +2,80 @@
 
 ## Scope
 
-This repository now supports a minimal production deployment baseline:
+This repository already supports a practical production-style baseline for internal rollout:
 
-- JWT-based authentication
+- JWT auth outside dev mode
 - refresh-token rotation, password reset, account disable, and session revoke
-- request IDs / trace IDs
-- optional OTLP distributed tracing
-- structured JSON logs
-- shared global/auth-scoped rate limiting and idempotency keys when Mongo mode is enabled
+- request IDs, trace IDs, structured JSON logs, and optional OTLP tracing
 - `/health`, `/livez`, `/readyz`, `/metrics`
-- versioned Mongo migrations via startup or `cmd/migrate`
+- Mongo-backed rate limiting and idempotency
+- startup or CLI-driven versioned Mongo migrations
 - soft delete with audit retention
+- an optional same-origin packaged web entry through Docker Compose
 
-Task write flows and identity-critical flows use Mongo transactions:
+Several write paths use Mongo transactions:
 
-- task create / transition / soft delete
+- task create, transition, and soft delete
 - refresh-token rotation
 - password-reset confirmation
-- account disable (disable + revoke refresh tokens + clear reset tokens)
+- account disable and session revoke side effects
 
-Production Mongo must therefore be a replica set member or a `mongos` router, not a standalone server.
+Because of that, production Mongo must be a replica set member or behind `mongos`. A standalone Mongo server is not enough.
 
-## Required Environment
+## Recommended deployment modes
 
-Set these at minimum:
+### Local compose baseline
+
+Use this when you want the backend stack, Mongo, bootstrap users, and smoke coverage on one machine:
+
+```bash
+docker compose up -d --build
+bash scripts/compose_smoke.sh
+```
+
+If you also want the packaged same-origin web entry:
+
+```bash
+docker compose --profile full up -d --build web
+bash scripts/nginx_smoke.sh
+```
+
+### Intranet or pilot deployment
+
+Use a real `.env` file, real bootstrap users, and strict production validation:
+
+```bash
+cp .env.intranet.example .env
+bash scripts/validate_production_env.sh .env
+docker compose up -d --build
+```
+
+For a gitignored pilot bundle with generated secrets and initial passwords:
+
+```bash
+bash scripts/init_pilot_env.sh
+bash scripts/validate_production_env.sh .env
+docker compose up -d --build
+```
+
+## Required environment
+
+Minimum recommended settings:
 
 ```env
 PORT=8080
+WEB_PORT=8081
 DEV_MODE=false
+ALLOW_PUBLIC_REGISTER=false
 STRICT_PRODUCTION_CONFIG=true
 TASK_REPOSITORY_DRIVER=mongo
 MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
 MONGODB_DATABASE=taskflow
 JWT_SECRET=<strong-random-secret>
-APP_VERSION=<release-tag>
+APP_VERSION=<release-tag-or-short-sha>
 BOOTSTRAP_USERS_FILE=./scripts/users.intranet.json
+LOG_LEVEL=info
+ACCESS_TOKEN_TTL=2h
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
 RATE_LIMIT_REQUESTS=120
@@ -53,18 +92,16 @@ TRACING_SERVICE_NAME=taskflow
 CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
 
-Optional secret file inputs:
+Optional secret-file inputs:
 
 ```env
 JWT_SECRET_FILE=/run/secrets/taskflow_jwt_secret
 MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 ```
 
-If you deploy with the checked-in `docker-compose.yml`, the compose stack now reads the same variables from your shell or `.env` file instead of hard-coding `compose-local` values. That includes `JWT_SECRET`, `APP_VERSION`, `CORS_ALLOWED_ORIGINS`, and `BOOTSTRAP_USERS_FILE`.
+`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, and other obviously non-production inputs.
 
-For intranet / production deployments, keep `STRICT_PRODUCTION_CONFIG=true` so the service refuses obvious placeholder values such as `compose-local` secrets, `compose-local` app versions, memory repository mode, or local-development CORS origins.
-
-Before `docker compose up`, validate the deployment inputs:
+Validate the env file before rollout:
 
 ```bash
 bash scripts/validate_production_env.sh .env
@@ -72,15 +109,19 @@ bash scripts/validate_production_env.sh .env
 
 ## Build
 
+Build the application image with an immutable version string:
+
 ```bash
-docker build --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t taskflow:latest .
+docker build \
+  --build-arg APP_VERSION="$(git rev-parse --short HEAD)" \
+  -t taskflow:latest .
 ```
 
-The checked-in `go.mod` and `Dockerfile` pin the supported toolchain baseline to Go `1.25.11`.
+The repository pins Go `1.25.11` in `go.mod`, and the frontend CI baseline uses Node `22`.
 
-## Run Database Migration
+## Run migrations
 
-Before first traffic, apply versioned migrations:
+Apply versioned Mongo migrations before first traffic:
 
 ```bash
 docker run --rm \
@@ -88,13 +129,16 @@ docker run --rm \
   -e TASK_REPOSITORY_DRIVER=mongo \
   -e MONGODB_URI=mongodb://host.docker.internal:27017/?replicaSet=rs0 \
   -e MONGODB_DATABASE=taskflow \
-  -e JWT_SECRET=replace-me \
-  taskflow:latest /usr/local/bin/taskflow-migrate
+  -e JWT_SECRET=replace-me-with-a-real-secret \
+  taskflow:latest \
+  /usr/local/bin/taskflow-migrate
 ```
 
-The server also applies pending migrations at startup. Running `taskflow-migrate` explicitly keeps rollout order auditable.
+The server also applies pending migrations at startup, but running `taskflow-migrate` explicitly keeps rollout order auditable.
 
-## Run Service
+## Run the service
+
+### Direct container run
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -102,50 +146,72 @@ docker run --rm -p 8080:8080 \
   -e TASK_REPOSITORY_DRIVER=mongo \
   -e MONGODB_URI=mongodb://host.docker.internal:27017/?replicaSet=rs0 \
   -e MONGODB_DATABASE=taskflow \
-  -e JWT_SECRET=replace-me \
+  -e JWT_SECRET=replace-me-with-a-real-secret \
   -e APP_VERSION=local \
   taskflow:latest
 ```
 
-## Local Compose Baseline
+### Compose-based run
 
 ```bash
 docker compose up -d --build
-bash scripts/compose_smoke.sh
 ```
 
-The compose defaults remain local-only:
+For the packaged web entry and `/api` proxy:
 
-- `JWT_SECRET=compose-local-secret-must-be-at-least-32-chars`
-- `APP_VERSION=compose-local`
-- `BOOTSTRAP_USERS_FILE=./scripts/users.example.json`
-- `CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+```bash
+docker compose --profile full up -d --build web
+```
 
-Treat these as development defaults only. For intranet/production rollout, override them through `.env` or exported environment variables before `docker compose up`.
+Compose defaults such as `compose-local` secrets, `compose-local` app version, and local CORS origins are development-only and must be overridden for intranet or production use.
 
-## Readiness and Observability
+## Health and observability
+
+Important endpoints:
 
 - `GET /livez`: process liveness
 - `GET /readyz`: readiness, including Mongo ping when Mongo mode is enabled
 - `GET /metrics`: Prometheus-style text metrics
-- Prometheus counters include `http_requests_total`, `http_request_duration_seconds_*`, `taskflow_identity_events_total`, `taskflow_rate_limit_decisions_total`, and `taskflow_idempotency_decisions_total`
-- `X-Request-ID` and `X-Trace-ID` are echoed on every response
-- When tracing is enabled, the service emits OTLP HTTP spans and keeps trace/span IDs aligned with logs
 
-## Rollout
+Current response and telemetry behavior:
 
-Recommended sequence:
+- every response echoes `X-Request-ID` and `X-Trace-ID`
+- metrics include HTTP, identity, rate-limit, and idempotency counters
+- when tracing is enabled, OTLP spans line up with trace IDs used in logs
 
-1. Build image with immutable version tag.
-2. Run `taskflow-migrate`.
-3. Start new version beside old version.
-4. Wait for `/readyz` to return `200`.
-5. Shift traffic.
-6. Keep old version available until smoke checks pass.
+For local monitoring profile validation:
+
+```bash
+docker compose --profile monitoring up -d
+bash scripts/monitoring_smoke.sh
+```
+
+## Rollout sequence
+
+Recommended order:
+
+1. Build and tag the image.
+2. Validate `.env` with `scripts/validate_production_env.sh`.
+3. Run `taskflow-migrate`.
+4. Start the new version.
+5. Wait for `/readyz` to return `200`.
+6. Run smoke checks before shifting or widening traffic.
+7. Keep the previous image available until core checks pass.
+
+Useful post-start checks:
+
+```bash
+curl -sf http://127.0.0.1:8080/readyz
+bash scripts/compose_smoke.sh
+bash scripts/nginx_smoke.sh
+bash scripts/web_acceptance_smoke.sh
+```
 
 ## Rollback
 
-Use the provided helper when rolling back a Docker-based deployment:
+The current migration set is additive, and task deletion is implemented as soft delete, so rollback is operationally straightforward.
+
+Use the helper script for Docker-based rollback:
 
 ```bash
 TASKFLOW_PREVIOUS_IMAGE=taskflow:previous \
@@ -155,31 +221,27 @@ TASKFLOW_PORT=8080 \
 ./scripts/rollback_image.sh
 ```
 
-Rollback remains low risk because deletes are soft deletes and the current migration set is additive:
+Recommended rollback flow:
 
 1. Stop sending traffic to the new version.
-2. Shift traffic back to the previous image tag or run the rollback script above.
-3. Keep the same Mongo database; current migrations only add collections and indexes.
-4. Inspect retained audit logs plus request/trace IDs for failed requests.
+2. Shift traffic back to the previous image or container.
+3. Reuse the same Mongo database.
+4. Inspect logs, request IDs, trace IDs, and retained audit history for failed requests.
 
-## CI / Security / Performance Baseline
+## Supporting documents
 
-- GitHub Actions workflow: `.github/workflows/ci.yml`
-- Security audit helper: `./scripts/security_audit.sh`
-- k6 smoke profile: `./scripts/perf_smoke.js`
-- Compose smoke helper: `./scripts/compose_smoke.sh`
-- Migration discipline: `./MIGRATIONS.md`
-- Local collector example: `./deploy/otel-collector.yaml`
-- Security baseline report: `./reports/security-baseline-2026-06-12.md`
-- Performance baseline report: `./reports/performance-baseline-2026-06-12.md`
+- Migration discipline: [`MIGRATIONS.md`](./MIGRATIONS.md)
+- Intranet release checklist: [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md)
+- First deployment runbook: [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md)
+- Day-2 operations: [`INTRANET_OPS.md`](./INTRANET_OPS.md)
+- Acceptance scripts: [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)
+- Local collector example: [`deploy/otel-collector.yaml`](./deploy/otel-collector.yaml)
+- Security baseline: [`reports/security-baseline-2026-06-12.md`](./reports/security-baseline-2026-06-12.md)
+- Performance baseline: [`reports/performance-baseline-2026-06-12.md`](./reports/performance-baseline-2026-06-12.md)
 
-## Intranet MVP Rollout
+## Current limitations
 
-For small-team internal rollout and release gating, see [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md), [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md), and [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md).
-
-## Current Limitations
-
-- Refresh tokens are persisted and rotated, but there is no device/session management UI.
-- Password reset token delivery is external to this repo; in `DEV_MODE=true` the reset token is echoed for local verification only.
-- OTLP tracing is optional and collector/exporter topology is still left to the deployment environment; the repository only ships a local collector baseline.
-- CI covers build/test/vet/vulnerability scan plus Mongo service-container and migrate smoke, but it does not yet provide CD orchestration.
+- There is no device/session management UI yet.
+- Password-reset token delivery still depends on external delivery wiring; in `DEV_MODE=true`, the token is exposed only for local verification.
+- OTLP topology is environment-owned; the repo only provides a local collector example.
+- CI covers build, tests, smoke, migration, monitoring, and release-audit checks, but it does not provide full CD orchestration.

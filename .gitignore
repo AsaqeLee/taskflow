@@ -3,8 +3,8 @@
 .serena/
 node_modules/
 .DS_Store
-package-lock.json
-package.json
+/package-lock.json
+/package.json
 .env
 .env.local
 .taskflow
@@ -39,4 +39,4 @@ scripts/*
 scripts/users.intranet.json
 backups/acceptance/*.gz
 evidence/
-docs/
+/docs/plans/

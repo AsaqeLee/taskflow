@@ -1,184 +1,192 @@
-<div align="center">
-
 # TaskFlow
-
-**DDD-Compliant Go Workflow Backend with Hardened State Machine**
-
-[![Architecture: State--Machine](https://img.shields.io/badge/architecture-state--machine-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
-[![Standard: DDD--Compliant](https://img.shields.io/badge/standard-ddd--compliant-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
-[![Persistence: Polyglot](https://img.shields.io/badge/persistence-polyglot-000000.svg?style=flat-square)](https://github.com/AsaqeLee/taskflow)
 
 English | [简体中文](./README_ZH.md)
 
-</div>
+TaskFlow is a full-stack internal task workflow system. This repository contains:
 
----
+- a Go HTTP API with explicit task state transitions
+- a React frontend under `web/`
+- Mongo-backed release, validation, and intranet rollout scripts
 
-## Introduction
+The current workflow is centered on a small-team delivery loop:
 
-**TaskFlow** is a production-grade blueprint for task collaboration and lifecycle management. It prioritizes explicit state transitions, repository-based persistence abstractions, and low-friction developer recovery. By decoupling business logic from infrastructure, it scales from simple task tracking to complex, multi-actor workflows.
-
->[!IMPORTANT]
->This system treats task lifecycles as a formal state machine. Every action (assign, start, submit, approve) is validated against current state and actor permissions to ensure zero illegal transitions.
-
->[!NOTE]
->Current runtime baseline includes password-based registration, `POST /auth/login`, `POST /auth/refresh`, password reset, account disable and session revoke, JWT-only production auth, request/trace IDs, optional OTLP tracing, structured JSON logs, `/health` + `/livez` + `/readyz` + `/metrics`, versioned Mongo migrations, domain-driven soft delete with audit retention, assignee existence/active checks on assign, and Mongo-backed shared global/auth-scoped rate limiting plus idempotency when running with the Mongo driver. Task writes and identity-critical flows run inside Mongo transactions when the Mongo driver is enabled.
-
----
-
-## Workflow Architecture
-
-The core engine enforces a strict lifecycle: `create -> assign -> start -> submit -> approve/reject -> close`.
-
-```mermaid
-graph LR
-    Create([Create]) --> Assign[Assign]
-    Assign --> Start[Start]
-    Start --> Submit[Submit]
-    Submit --> Review{Review}
-    Review -- Reject --> Start
-    Review -- Approve --> Close([Close])
-    
-    style Review fill:none,stroke:#000,stroke-width:2px
+```text
+create -> assign -> start -> submit -> approve/reject -> close
 ```
 
----
+## What is in scope
 
-## Technical Specifications
+- Password-based login, refresh-token rotation, password reset, account disable, and session revoke
+- JWT auth for non-dev environments
+- Health, readiness, liveness, metrics, structured logs, request IDs, and optional OTLP tracing
+- Mongo migrations, soft delete with audit retention, rate limiting, and idempotency
+- A browser UI for login, task list, task detail, task creation, and current-user profile
 
-<details>
-<summary><b>Domain-Driven Design (DDD) Structure</b></summary>
+## Repository layout
 
 ```text
 taskflow/
-├── cmd/
-│   ├── server/         # HTTP server entrypoint
-│   └── migrate/        # Mongo migration CLI
+├── cmd/                 # server and migration entrypoints
 ├── internal/
-│   ├── domain/         # Aggregates, entities, value objects, domain errors
-│   │   ├── task/       # Task aggregate, state machine, domain events
-│   │   ├── user/       # Account aggregate, Actor, Role
-│   │   ├── identity/   # Refresh & password-reset token entities
-│   │   ├── record/     # Collaboration record entity
-│   │   ├── audit/      # Audit log entity & actions
-│   │   ├── event/      # Domain event contract
-│   │   └── ports/      # Repository interfaces (hexagonal boundaries)
-│   ├── service/        # TaskService, IdentityService, event application
-│   ├── repository/     # Mongo/Memory adapters (aliases to ports)
-│   ├── model/          # HTTP DTOs & domain mappers
-│   ├── handler/        # HTTP transport (depends on service, not repository)
-│   ├── middleware/     # Auth, rate limit, idempotency, tracing
-│   ├── router/         # Route wiring
-│   ├── bootstrap/      # Dependency injection & app assembly
-│   ├── config/
-│   ├── database/       # Mongo client & transaction runner
-│   ├── migrations/
-│   └── observability/  # Logger, metrics, tracing
-├── scripts/            # compose_smoke, security_audit, perf_smoke, rollback
-├── deploy/             # OTLP collector example
-└── reports/            # Security & performance baseline reports
+│   ├── bootstrap/       # app assembly
+│   ├── config/          # environment config and strict production validation
+│   ├── domain/          # aggregates, state machine, ports
+│   ├── handler/         # HTTP handlers
+│   ├── middleware/      # auth, logging, tracing, rate limit, idempotency
+│   ├── repository/      # Mongo and memory adapters
+│   ├── router/          # route wiring
+│   └── service/         # task and identity use cases
+├── web/                 # React + Vite frontend
+├── scripts/             # smoke tests, rollout helpers, audits
+├── deploy/              # local observability config
+├── reports/             # release, security, and performance notes
+└── docs/                # project notes and local planning space
 ```
 
-**Layer rules**
+## Quick start
 
-| Layer | Responsibility | Depends on |
-| --- | --- | --- |
-| `domain/*` | Invariants, state transitions, aggregate behavior | domain packages only |
-| `domain/ports` | Persistence contracts | domain types |
-| `service` | Use-case orchestration, transactions, event persistence | `domain`, `ports`, `model` |
-| `repository` | Mongo/Memory implementations | `domain`, `ports` |
-| `handler` / `middleware` / `router` | HTTP transport & cross-cutting concerns | `service`, `ports` (auth lookup), `model` |
+### 1. Backend only, fastest local loop
 
-Key application services:
+Requirements:
 
-- `TaskService` — task lifecycle, audit/record side effects, assignee validation
-- `IdentityService` — `Authenticate`, registration, refresh rotation, password reset, disable
-</details>
+- Go `1.25.11`
 
-<details>
-<summary><b>HTTP API Surface</b></summary>
+Run the API in dev mode with the in-memory repository:
 
-Public:
-
-- `POST /users`, `POST /auth/login`, `POST /auth/refresh`
-- `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm`
-
-Authenticated:
-
-- `GET /me`, `POST /users/:id/disable`, `POST /users/:id/revoke-sessions`
-- `POST /tasks`, `GET /tasks`, `GET /tasks/:id`, `PATCH /tasks/:id`, `DELETE /tasks/:id`
-- `POST /tasks/:id/{assign,start,submit,reject,approve,close,cancel,reactivate}`
-- `GET /tasks/:id/records`, `GET /tasks/:id/audit_logs`
-
-System:
-
-- `GET /health`, `GET /livez`, `GET /readyz`, `GET /metrics`
-</details>
-
-<details>
-<summary><b>Dual-Persistence Driver Protocol</b></summary>
-
-TaskFlow supports pluggable persistence through the Repository Pattern:
-- **Memory Driver:** Optimized for lightning-fast local iteration and CI/CD testing.
-- **Mongo Driver:** For production-grade persistence-path validation and horizontal scaling.
-- **Switching:** Controlled via `TASK_REPOSITORY_DRIVER` environment variable without business logic changes.
-</details>
-
-<details>
-<summary><b>Enterprise Installation & Usage</b></summary>
-
-### Prerequisites
-- Go 1.25.11 or higher
-- MongoDB (optional, for production driver)
-
-### Quick Start
 ```bash
-# Clone the repository
-git clone https://github.com/AsaqeLee/taskflow.git
-cd taskflow
-
-# Verify integrity
 go test ./...
 
-# Run local dev mode (enables seeded dev users and X-User-ID / legacy token fallback)
-DEV_MODE=true TASK_REPOSITORY_DRIVER=memory JWT_SECRET=change-me go run ./cmd/server
+DEV_MODE=true \
+TASK_REPOSITORY_DRIVER=memory \
+JWT_SECRET=change-me-change-me-change-me-123 \
+go run ./cmd/server
+```
 
-# Register a password-based user
-curl -X POST http://localhost:8080/users \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"u_demo","name":"Demo User","role":"human","password":"strong-pass-123"}'
+Dev mode seeds these users:
 
-# Or login with an existing user
-curl -X POST http://localhost:8080/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"u_demo","password":"strong-pass-123"}'
+- `u_test_001` / `creator-pass-123`
+- `u_test_002` / `assignee-pass-123`
+- `u_agent_001` / `agent-pass-123`
 
-# Rotate a refresh token
-curl -X POST http://localhost:8080/auth/refresh \
-  -H 'Content-Type: application/json' \
-  -d '{"refresh_token":"<refresh-token>"}'
+`POST /users` is available in dev mode unless `ALLOW_PUBLIC_REGISTER` is overridden.
 
-# Boot the local Mongo + OTLP demo stack
+### 2. Frontend local preview
+
+Requirements:
+
+- Node `22`
+
+Start the API first, then run the Vite app:
+
+```bash
+cd web
+npm ci
+VITE_API_PROXY_TARGET=http://localhost:8080 npm run dev
+```
+
+Open `http://127.0.0.1:5173`.
+
+Useful frontend commands:
+
+```bash
+cd web
+npm run lint
+npm run test
+npm run build
+npm run preview
+```
+
+The frontend uses `/api` by default and the Vite dev server proxies that path to `VITE_API_PROXY_TARGET` or `http://localhost:8080`.
+
+### 3. Local Mongo compose baseline
+
+Bring up the backend stack with Mongo and bootstrap data:
+
+```bash
 docker compose up -d --build
 bash scripts/compose_smoke.sh
 ```
 
-For rollout discipline and migration expectations, see `DEPLOYMENT.md` and `MIGRATIONS.md`. For small-team intranet release gating, see [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md), [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md), and [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md).
-</details>
+If you also want the packaged same-origin web entry:
 
----
+```bash
+docker compose --profile full up -d --build web
+bash scripts/nginx_smoke.sh
+```
 
-## Strategic Boundaries
+## API surface
 
-- **Audit Traceability:** Every state change triggers an `AuditLog` for professional accountability. Soft delete flows through the task aggregate (`MarkDeleted`) and still emits audit events; there is no repository-level hard-delete shortcut.
-- **Built-In Account Baseline:** `IdentityService` owns authentication and account lifecycle. Password login, refresh-token rotation, password reset, disable, and session revoke are built in; SSO / OAuth remains an integration-layer concern.
-- **Validated Persistence:** Task status values are validated on read (`ParseStatus`). Assign requires the target user to exist and remain active.
-- **Clean Code:** Handler and router layers depend on `domain/ports`, not concrete repositories. Service layer re-exports repository errors for HTTP mapping.
+Public routes:
 
----
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/password-reset/request`
+- `POST /auth/password-reset/confirm`
+- `POST /users` when public registration is enabled
 
-<div align="center">
+Authenticated routes:
 
-&copy; 2026 AsaqeLee. Built for deterministic workflow orchestration.
+- `GET /me`
+- `GET /users`
+- `POST /users/:id/disable`
+- `POST /users/:id/revoke-sessions`
+- `POST /tasks`
+- `GET /tasks`
+- `GET /tasks/:id`
+- `PATCH /tasks/:id`
+- `DELETE /tasks/:id`
+- `POST /tasks/:id/{assign,start,submit,reject,approve,close,cancel,reactivate}`
+- `GET /tasks/:id/records`
+- `GET /tasks/:id/audit_logs`
 
-</div>
+System routes:
+
+- `GET /health`
+- `GET /livez`
+- `GET /readyz`
+- `GET /metrics`
+
+## Testing and release checks
+
+Backend:
+
+```bash
+go test ./...
+```
+
+Frontend:
+
+```bash
+cd web
+npm ci
+npm run lint
+npm run test
+npm run build
+```
+
+Repo-level smoke and release helpers:
+
+- `bash scripts/compose_smoke.sh`
+- `bash scripts/web_build_smoke.sh`
+- `bash scripts/web_acceptance_smoke.sh`
+- `bash scripts/nginx_smoke.sh`
+- `bash scripts/monitoring_smoke.sh`
+- `bash scripts/intranet_acceptance.sh`
+- `bash scripts/security_audit.sh`
+
+GitHub Actions runs both frontend and backend checks in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+
+## Deployment and operations
+
+- Deployment baseline: [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+- Mongo migration discipline: [`MIGRATIONS.md`](./MIGRATIONS.md)
+- Intranet release checklist: [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md)
+- First deployment runbook: [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md)
+- Day-2 operations: [`INTRANET_OPS.md`](./INTRANET_OPS.md)
+- Acceptance and smoke scripts: [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)
+
+## Notes on production behavior
+
+- Production deployments should use `DEV_MODE=false`, `STRICT_PRODUCTION_CONFIG=true`, and `TASK_REPOSITORY_DRIVER=mongo`.
+- Mongo transaction-backed flows require a replica set member or `mongos`, not a standalone Mongo server.
+- The packaged frontend and API can be served together through the compose `full` profile.
