@@ -1,6 +1,13 @@
 # TaskFlow 内网试点发布收口计划
 
-面向“从当前候选发布版推进到可试点部署版”的下一阶段执行计划。当前 `main` 已推进到 `0d7edf3`，本地自动化、Compose 验收、Playwright 主流程与最新 GitHub Actions `ci` 均已通过；同时 `docker-compose.yml` 已支持通过 `.env` / shell 注入生产参数。项目当前的主要矛盾已经不是“继续补 MVP 功能”，而是“把候选发布版收口成可试点部署版”。
+面向“从当前候选发布版推进到可试点部署版”的下一阶段执行计划。当前候选版本已推进到 `dee3a20`，并已在 2026-06-23 通过仓库内严格发布门禁；同时 `docker-compose.yml` 已支持通过 `.env` / shell 注入生产参数。项目当前的主要矛盾已经不是“继续补 MVP 功能”，而是“把候选发布版收口成可试点部署版”。
+
+## 0. 当前执行状态
+
+- M1 已完成：发布清单、校验记录、候选版本事实已同步到当前基线
+- M2 待完成：目标环境真实参数、真实用户文件、真实入口域名与 HTTPS
+- M3 待完成：目标内网环境试点部署与验收
+- M4 待完成：go / no-go 判定、回滚入口、业务签收
 
 ## 1. 本轮目标
 
@@ -57,14 +64,14 @@
 
 ## 6. 执行计划
 
-### 6.1 同步发布资料
+### 6.1 已完成：同步发布资料
 
 目标：解决“文档事实落后于代码”的问题。
 
 任务：
 
 - 更新 `INTRANET_RELEASE_CHECKLIST.md` 中的 `Git commit`、备份文件路径、风险描述。
-- 将本轮校验结论整理到正式、受版本控制的发布记录，例如 `reports/intranet-release-assessment-2026-06-22.md`。
+- 将本轮校验结论整理到正式、受版本控制的发布记录，例如 `reports/intranet-release-assessment-2026-06-23.md`。
 - 明确写出“代码已可部署，但默认值不能直接上内网”的结论，避免口径混淆。
 
 验收信号：
@@ -83,7 +90,7 @@
   - 前后端同域，或
   - 前后端分域 + 反向代理 / HTTPS
 - 生成强随机 `JWT_SECRET`，并确认不进入 git。
-- 选定本次试点的 `APP_VERSION`，建议使用 tag 或 `0d7edf3` 这样的短 SHA。
+- 选定本次试点的 `APP_VERSION`，建议使用 tag 或 `dee3a20` 这样的短 SHA。
 - 复制 `scripts/users.example.json` 为目标环境用户文件，并替换全部 `change-me-*` 密码。
 - 将 `.env` 中的 `BOOTSTRAP_USERS_FILE` 指向自定义用户文件。
 - 按入口方式设置 `CORS_ALLOWED_ORIGINS`；如前后端同域，则写成实际入口域名即可。
@@ -224,6 +231,6 @@
 - `INTRANET_RELEASE_CHECKLIST.md`
 - `INTRANET_RUNBOOK.md`
 - `INTRANET_OPS.md`
-- `reports/intranet-release-assessment-2026-06-22.md`
+- `reports/intranet-release-assessment-2026-06-23.md`
 - `reports/mobile-acceptance-checklist.md`
 - `docker-compose.yml`
