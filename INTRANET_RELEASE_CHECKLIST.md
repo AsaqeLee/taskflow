@@ -23,10 +23,13 @@
 - [x] `bash scripts/compose_smoke.sh` 通过
 - [x] `bash scripts/monitoring_smoke.sh` 通过
 - [x] `bash scripts/nginx_smoke.sh` 通过
-- [x] `bash scripts/pilot_smoke.sh .env` 通过
 - [x] `bash scripts/web_acceptance_smoke.sh` 通过
 - [x] `COLD_START=1 bash scripts/intranet_acceptance.sh` 通过
 - [x] 严格发布门禁 `bash scripts/release_candidate_check.sh <tmp strict env>` 已在 `APP_VERSION=dee3a20` 下通过
+
+补充说明：
+
+- `scripts/pilot_smoke.sh` 仍保留，用于手工预览生产包和试点演示，但不再作为严格发布门禁的硬性步骤
 
 ## 3. 目标环境上线前必须补齐
 

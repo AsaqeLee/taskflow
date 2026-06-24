@@ -118,7 +118,7 @@ cd web && npm ci && npm run dev
 # 浏览器打开 http://localhost:5173
 ```
 
-**试点预览：**
+**试点预览（可选演示入口，不属于严格发布门禁）：**
 
 ```bash
 npm --prefix web run preview -- --host 0.0.0.0 --port 8081

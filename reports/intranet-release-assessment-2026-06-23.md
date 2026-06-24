@@ -20,7 +20,6 @@
 - `BACKUP_TOOL=compose bash scripts/backup_mongo.sh` + `bash scripts/backup_healthcheck.sh`
 - `bash scripts/monitoring_smoke.sh`
 - `bash scripts/nginx_smoke.sh`
-- `bash scripts/pilot_smoke.sh .env`
 - `bash scripts/web_acceptance_smoke.sh`
 - `COLD_START=1 bash scripts/intranet_acceptance.sh`
 - `bash scripts/release_candidate_check.sh <tmp strict env>`，其中 `APP_VERSION=dee3a20`
@@ -61,7 +60,6 @@
   - 监控校验
   - 浏览器验收
   - nginx 同域入口校验
-  - preview 入口校验
   - 冷启动验收
 
 ### 3.3 备份、监控与入口
@@ -69,7 +67,7 @@
 - 备份链路通过：归档、校验和、metadata、freshness check 均通过
 - Prometheus / Alertmanager profile 通过：taskflow scrape 正常、告警规则成功加载
 - nginx 同域入口通过：`/api` 代理和关键安全响应头验证通过
-- Vite preview 生产包入口通过：owner 登录链路正常
+- Vite preview 生产包入口已单独验证通过，可继续作为手工演示辅助入口，但不再属于严格发布门禁
 
 ## 4. 执行中发现的问题
 

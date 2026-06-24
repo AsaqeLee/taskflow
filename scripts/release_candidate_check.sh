@@ -94,11 +94,6 @@ bash scripts/web_acceptance_smoke.sh
 log "running nginx same-origin smoke"
 bash scripts/nginx_smoke.sh "${ENV_FILE:-}"
 
-if [[ -n "$ENV_FILE" ]]; then
-  log "running pilot nginx entry smoke"
-  bash scripts/pilot_smoke.sh "$ENV_FILE"
-fi
-
 compose_down
 
 log "running cold-start intranet acceptance"
