@@ -24,6 +24,10 @@ func NewMemoryUserRepository() *MemoryUserRepository {
 }
 
 func (r *MemoryUserRepository) Create(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -31,7 +35,6 @@ func (r *MemoryUserRepository) Create(ctx context.Context, account domainuser.Ac
 		account = account.AssignID(fmt.Sprintf("u_%03d", r.nextID))
 		r.nextID++
 	}
-
 	if _, exists := r.users[account.ID()]; exists {
 		return domainuser.Account{}, ErrUserAlreadyExists
 	}
@@ -57,6 +60,10 @@ func (r *MemoryUserRepository) Create(ctx context.Context, account domainuser.Ac
 }
 
 func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -64,11 +71,14 @@ func (r *MemoryUserRepository) FindByID(ctx context.Context, id string) (domainu
 	if !exists {
 		return domainuser.Account{}, ErrUserNotFound
 	}
-
 	return account, nil
 }
 
 func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -77,11 +87,14 @@ func (r *MemoryUserRepository) FindByToken(ctx context.Context, token string) (d
 			return account, nil
 		}
 	}
-
 	return domainuser.Account{}, ErrUserNotFoundByToken
 }
 
 func (r *MemoryUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -107,6 +120,10 @@ func (r *MemoryUserRepository) UpdatePassword(ctx context.Context, id, passwordH
 }
 
 func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy string, disabledAt time.Time) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -132,6 +149,10 @@ func (r *MemoryUserRepository) Disable(ctx context.Context, id, disabledBy strin
 }
 
 func (r *MemoryUserRepository) Update(ctx context.Context, account domainuser.Account) (domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainuser.Account{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -144,6 +165,10 @@ func (r *MemoryUserRepository) Update(ctx context.Context, account domainuser.Ac
 }
 
 func (r *MemoryUserRepository) List(ctx context.Context, activeOnly bool) ([]domainuser.Account, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

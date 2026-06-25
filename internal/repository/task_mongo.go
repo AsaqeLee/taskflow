@@ -107,6 +107,54 @@ func (r *MongoTaskRepository) List(ctx context.Context) ([]domaintask.Task, erro
 	return result, nil
 }
 
+func (r *MongoTaskRepository) ListVisibleToUser(ctx context.Context, userID string) ([]domaintask.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
+	defer cancel()
+
+	filter := bson.M{
+		"$and": []bson.M{
+			{
+				"$or": []bson.M{
+					{"deleted_at": bson.M{"$exists": false}},
+					{"deleted_at": nil},
+				},
+			},
+			{
+				"$or": []bson.M{
+					{"creator_id": userID},
+					{"assignee_id": userID},
+				},
+			},
+		},
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var docs []taskDocument
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+
+	result := make([]domaintask.Task, 0, len(docs))
+	for _, doc := range docs {
+		task, err := documentToTask(doc)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, task)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt().Before(result[j].CreatedAt())
+	})
+
+	return result, nil
+}
+
 func (r *MongoTaskRepository) Update(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()

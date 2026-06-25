@@ -22,6 +22,10 @@ func NewMemoryIdentityRepository() *MemoryIdentityRepository {
 }
 
 func (r *MemoryIdentityRepository) SaveRefreshToken(ctx context.Context, token domainidentity.RefreshToken) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -31,6 +35,10 @@ func (r *MemoryIdentityRepository) SaveRefreshToken(ctx context.Context, token d
 }
 
 func (r *MemoryIdentityRepository) FindRefreshToken(ctx context.Context, tokenHash string) (domainidentity.RefreshToken, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainidentity.RefreshToken{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -44,6 +52,10 @@ func (r *MemoryIdentityRepository) FindRefreshToken(ctx context.Context, tokenHa
 }
 
 func (r *MemoryIdentityRepository) RevokeRefreshToken(ctx context.Context, tokenHash string, revokedAt time.Time, replacedByHash string) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -58,6 +70,10 @@ func (r *MemoryIdentityRepository) RevokeRefreshToken(ctx context.Context, token
 }
 
 func (r *MemoryIdentityRepository) RevokeUserRefreshTokens(ctx context.Context, userID string, revokedAt time.Time) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -72,6 +88,10 @@ func (r *MemoryIdentityRepository) RevokeUserRefreshTokens(ctx context.Context, 
 }
 
 func (r *MemoryIdentityRepository) SavePasswordResetToken(ctx context.Context, token domainidentity.PasswordResetToken) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -81,6 +101,10 @@ func (r *MemoryIdentityRepository) SavePasswordResetToken(ctx context.Context, t
 }
 
 func (r *MemoryIdentityRepository) FindPasswordResetToken(ctx context.Context, tokenHash string) (domainidentity.PasswordResetToken, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainidentity.PasswordResetToken{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -94,6 +118,10 @@ func (r *MemoryIdentityRepository) FindPasswordResetToken(ctx context.Context, t
 }
 
 func (r *MemoryIdentityRepository) ConsumePasswordResetToken(ctx context.Context, tokenHash string, consumedAt time.Time) (domainidentity.PasswordResetToken, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainidentity.PasswordResetToken{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -109,6 +137,10 @@ func (r *MemoryIdentityRepository) ConsumePasswordResetToken(ctx context.Context
 }
 
 func (r *MemoryIdentityRepository) DeletePasswordResetTokensByUser(ctx context.Context, userID string) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

@@ -24,6 +24,10 @@ func NewMemoryTaskRecordRepository() *MemoryTaskRecordRepository {
 }
 
 func (r *MemoryTaskRecordRepository) Create(ctx context.Context, record domainrecord.Record) (domainrecord.Record, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainrecord.Record{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -48,6 +52,10 @@ func (r *MemoryTaskRecordRepository) Create(ctx context.Context, record domainre
 }
 
 func (r *MemoryTaskRecordRepository) ListByTaskID(ctx context.Context, taskID string) ([]domainrecord.Record, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -69,6 +77,10 @@ func (r *MemoryTaskRecordRepository) ListByTaskID(ctx context.Context, taskID st
 }
 
 func (r *MemoryTaskRecordRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

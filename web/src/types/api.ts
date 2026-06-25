@@ -24,6 +24,7 @@ export interface Task {
   title: string
   description: string
   status: TaskStatus
+  available_actions?: TaskAction[]
   creator_id: string
   assignee_id: string
   created_at: string

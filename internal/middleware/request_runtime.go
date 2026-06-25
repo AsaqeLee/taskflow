@@ -31,8 +31,51 @@ type responseCaptureWriter struct {
 }
 
 func (w *responseCaptureWriter) Write(data []byte) (int, error) {
-	w.body.Write(data)
+	n, err := w.ResponseWriter.Write(data)
+	if n > 0 {
+		_, _ = w.body.Write(data[:n])
+	}
+	return n, err
+}
+
+type deadlineAwareWriter struct {
+	gin.ResponseWriter
+	ctx context.Context
+}
+
+func (w *deadlineAwareWriter) WriteHeader(code int) {
+	if w.ctx != nil && w.ctx.Err() != nil {
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *deadlineAwareWriter) WriteHeaderNow() {
+	if w.ctx != nil && w.ctx.Err() != nil {
+		return
+	}
+	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *deadlineAwareWriter) Write(data []byte) (int, error) {
+	if w.ctx != nil && w.ctx.Err() != nil {
+		return 0, w.ctx.Err()
+	}
 	return w.ResponseWriter.Write(data)
+}
+
+func (w *deadlineAwareWriter) WriteString(value string) (int, error) {
+	if w.ctx != nil && w.ctx.Err() != nil {
+		return 0, w.ctx.Err()
+	}
+	return w.ResponseWriter.WriteString(value)
+}
+
+func (w *deadlineAwareWriter) Flush() {
+	if w.ctx != nil && w.ctx.Err() != nil {
+		return
+	}
+	w.ResponseWriter.Flush()
 }
 
 type IdempotencyRecord struct {
@@ -253,10 +296,14 @@ func Timeout(timeout time.Duration) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 
+		writer := c.Writer
+		c.Writer = &deadlineAwareWriter{ResponseWriter: writer, ctx: ctx}
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		timedOut := ctx.Err() == context.DeadlineExceeded && !writer.Written()
+		c.Writer = writer
 
-		if ctx.Err() == context.DeadlineExceeded && !c.Writer.Written() {
+		if timedOut {
 			httpapi.WriteError(c, http.StatusGatewayTimeout, "request_timeout", "request exceeded timeout")
 		}
 	}
@@ -345,7 +392,7 @@ func Idempotency(store IdempotencyStore, metrics *observability.Metrics) gin.Han
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(payload))
 
-		scope := c.Request.Method + "|" + c.Request.URL.Path + "|" + c.ClientIP()
+		scope := idempotencyScope(c)
 		sum := sha256.Sum256(payload)
 		requestSum := hex.EncodeToString(sum[:])
 
@@ -390,6 +437,13 @@ func Idempotency(store IdempotencyStore, metrics *observability.Metrics) gin.Han
 		capture := &responseCaptureWriter{ResponseWriter: c.Writer}
 		c.Writer = capture
 		c.Next()
+		if c.Request.Context().Err() != nil {
+			if metrics != nil {
+				metrics.ObserveIdempotencyDecision("released")
+			}
+			_ = store.Release(c.Request.Context(), scope, key, requestSum)
+			return
+		}
 
 		if c.Writer.Status() >= 500 {
 			if metrics != nil {
@@ -441,6 +495,15 @@ func traceIDFromHeaders(c *gin.Context) string {
 
 func idempotencyStorageKey(scope, key string) string {
 	return scope + "|" + key
+}
+
+func idempotencyScope(c *gin.Context) string {
+	meta := requestmeta.FromContext(c.Request.Context())
+	identity := "ip:" + c.ClientIP()
+	if strings.TrimSpace(meta.UserID) != "" {
+		identity = "user:" + meta.UserID
+	}
+	return c.Request.Method + "|" + c.Request.URL.Path + "|" + identity
 }
 
 func newID() string {

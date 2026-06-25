@@ -55,6 +55,18 @@ type TaskService struct {
 	dbClient     *database.Client
 }
 
+const (
+	taskActionAssign     = "assign"
+	taskActionStart      = "start"
+	taskActionSubmit     = "submit"
+	taskActionReject     = "reject"
+	taskActionApprove    = "approve"
+	taskActionClose      = "close"
+	taskActionCancel     = "cancel"
+	taskActionReactivate = "reactivate"
+	taskActionDelete     = "delete"
+)
+
 func NewTaskService(
 	repo ports.TaskRepository,
 	recordRepo ports.TaskRecordRepository,
@@ -108,7 +120,7 @@ func (s *TaskService) CreateTask(ctx context.Context, currentUser model.User, ti
 	if err != nil {
 		return model.Task{}, err
 	}
-	return model.TaskFromDomain(createdTask), nil
+	return taskViewForUser(createdTask, currentUser), nil
 }
 
 func (s *TaskService) GetTask(ctx context.Context, id string) (model.Task, error) {
@@ -136,7 +148,7 @@ func (s *TaskService) GetTaskForUser(ctx context.Context, currentUser model.User
 	if !canReadTask(task, currentUser) {
 		return model.Task{}, ErrForbiddenRead
 	}
-	return model.TaskFromDomain(task), nil
+	return taskViewForUser(task, currentUser), nil
 }
 
 func (s *TaskService) ListTasks(ctx context.Context) ([]model.Task, error) {
@@ -148,21 +160,19 @@ func (s *TaskService) ListTasks(ctx context.Context) ([]model.Task, error) {
 }
 
 func (s *TaskService) ListTasksForUser(ctx context.Context, currentUser model.User) ([]model.Task, error) {
-	tasks, err := s.repo.List(ctx)
-	if err != nil {
-		return nil, err
-	}
 	if isOwner(currentUser) {
+		tasks, err := s.repo.List(ctx)
+		if err != nil {
+			return nil, err
+		}
 		return model.TasksFromDomain(tasks), nil
 	}
 
-	filtered := make([]domaintask.Task, 0, len(tasks))
-	for _, task := range tasks {
-		if canReadTask(task, currentUser) {
-			filtered = append(filtered, task)
-		}
+	tasks, err := s.repo.ListVisibleToUser(ctx, currentUser.ID)
+	if err != nil {
+		return nil, err
 	}
-	return model.TasksFromDomain(filtered), nil
+	return taskViewsForUser(tasks, currentUser), nil
 }
 
 func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
@@ -235,7 +245,7 @@ func (s *TaskService) UpdateTaskBasic(ctx context.Context, currentUser model.Use
 	if err != nil {
 		return model.Task{}, err
 	}
-	return model.TaskFromDomain(updatedTask), nil
+	return taskViewForUser(updatedTask, currentUser), nil
 }
 
 func (s *TaskService) AssignTask(ctx context.Context, currentUser model.User, taskID, assigneeID string) (model.Task, error) {
@@ -502,9 +512,9 @@ func (s *TaskService) runTransitionWithRecord(
 		return model.Task{}, model.TaskRecord{}, err
 	}
 	if hasRecord {
-		return model.TaskFromDomain(updatedTask), model.TaskRecordFromDomain(savedRecord), nil
+		return taskViewForUser(updatedTask, currentUser), model.TaskRecordFromDomain(savedRecord), nil
 	}
-	return model.TaskFromDomain(updatedTask), model.TaskRecord{}, nil
+	return taskViewForUser(updatedTask, currentUser), model.TaskRecord{}, nil
 }
 
 func canReadTask(task domaintask.Task, currentUser model.User) bool {
@@ -517,4 +527,67 @@ func canReadTask(task domaintask.Task, currentUser model.User) bool {
 func isOwner(currentUser model.User) bool {
 	role, err := domainuser.ParseRole(currentUser.Role)
 	return err == nil && role.IsOwner()
+}
+
+func taskViewForUser(task domaintask.Task, currentUser model.User) model.Task {
+	view := model.TaskFromDomain(task)
+	view.AvailableActions = availableActionsForUser(task, currentUser)
+	return view
+}
+
+func taskViewsForUser(tasks []domaintask.Task, currentUser model.User) []model.Task {
+	result := make([]model.Task, len(tasks))
+	for i, task := range tasks {
+		result[i] = taskViewForUser(task, currentUser)
+	}
+	return result
+}
+
+func availableActionsForUser(task domaintask.Task, currentUser model.User) []string {
+	actions := make([]string, 0, 3)
+
+	if task.CreatorID() == currentUser.ID {
+		switch task.Status() {
+		case domaintask.StatusOpen:
+			actions = append(actions, taskActionAssign, taskActionCancel, taskActionDelete)
+		case domaintask.StatusAssigned:
+			actions = append(actions, taskActionCancel, taskActionDelete)
+		case domaintask.StatusInProgress:
+			actions = append(actions, taskActionCancel)
+		case domaintask.StatusSubmitted:
+			actions = append(actions, taskActionApprove, taskActionReject)
+		case domaintask.StatusApproved:
+			actions = append(actions, taskActionClose)
+		case domaintask.StatusCancelled, domaintask.StatusCompleted:
+			actions = append(actions, taskActionReactivate)
+		}
+	}
+
+	if task.AssigneeID() == currentUser.ID {
+		switch task.Status() {
+		case domaintask.StatusAssigned:
+			actions = append(actions, taskActionStart)
+		case domaintask.StatusInProgress:
+			actions = append(actions, taskActionSubmit)
+		}
+	}
+
+	return dedupeActions(actions)
+}
+
+func dedupeActions(actions []string) []string {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(actions))
+	seen := make(map[string]struct{}, len(actions))
+	for _, action := range actions {
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		seen[action] = struct{}{}
+		result = append(result, action)
+	}
+	return result
 }

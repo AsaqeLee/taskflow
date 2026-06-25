@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/requestmeta"
 	"github.com/gin-gonic/gin"
 )
 
@@ -59,6 +60,52 @@ func TestIdempotencyMiddlewareReplaysStoredResponse(t *testing.T) {
 	}
 	if body["count"] != float64(1) {
 		t.Fatalf("expected replayed response body, got %v", body)
+	}
+}
+
+func TestIdempotencyMiddlewareScopesKeysByAuthenticatedUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	store := NewIdempotencyStore(time.Minute)
+	var executions atomic.Int32
+
+	r := gin.New()
+	r.Use(RequestContext())
+	r.Use(func(c *gin.Context) {
+		userID := c.GetHeader("X-User-ID")
+		if userID != "" {
+			c.Request = c.Request.WithContext(requestmeta.WithUserID(c.Request.Context(), userID))
+		}
+		c.Next()
+	})
+	r.Use(Idempotency(store, nil))
+	r.POST("/echo", func(c *gin.Context) {
+		executions.Add(1)
+		c.JSON(http.StatusCreated, gin.H{"ok": true, "count": executions.Load()})
+	})
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"value":"same"}`))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.Header.Set("Idempotency-Key", "abc123")
+	firstReq.Header.Set("X-User-ID", "u_alice")
+	firstResp := httptest.NewRecorder()
+	r.ServeHTTP(firstResp, firstReq)
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"value":"same"}`))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.Header.Set("Idempotency-Key", "abc123")
+	secondReq.Header.Set("X-User-ID", "u_bob")
+	secondResp := httptest.NewRecorder()
+	r.ServeHTTP(secondResp, secondReq)
+
+	if firstResp.Code != http.StatusCreated || secondResp.Code != http.StatusCreated {
+		t.Fatalf("expected both requests succeed, got first=%d second=%d", firstResp.Code, secondResp.Code)
+	}
+	if got := executions.Load(); got != 2 {
+		t.Fatalf("expected separate executions per authenticated user, got %d", got)
+	}
+	if secondResp.Header().Get("Idempotent-Replayed") != "" {
+		t.Fatalf("expected second user request not to replay prior response")
 	}
 }
 
@@ -134,5 +181,80 @@ func TestMemoryIdempotencyStoreMarksPendingRequestsInProgress(t *testing.T) {
 	}
 	if secondDecision != IdempotencyDecisionInProgress {
 		t.Fatalf("expected second decision to report in progress, got %v", secondDecision)
+	}
+}
+
+func TestTimeoutMiddlewareReturnsGatewayTimeoutForLateWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(RequestContext())
+	r.Use(Timeout(10 * time.Millisecond))
+	r.GET("/slow", func(c *gin.Context) {
+		time.Sleep(25 * time.Millisecond)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/slow", nil)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected timeout status 504, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode timeout response: %v", err)
+	}
+	if body.Error.Code != "request_timeout" {
+		t.Fatalf("expected request_timeout code, got %q", body.Error.Code)
+	}
+}
+
+func TestIdempotencyMiddlewareReleasesTimedOutRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	store := NewIdempotencyStore(time.Minute)
+	var executions atomic.Int32
+
+	r := gin.New()
+	r.Use(RequestContext())
+	r.Use(Timeout(10 * time.Millisecond))
+	r.Use(Idempotency(store, nil))
+	r.POST("/slow", func(c *gin.Context) {
+		executions.Add(1)
+		time.Sleep(25 * time.Millisecond)
+		c.JSON(http.StatusCreated, gin.H{"ok": true, "count": executions.Load()})
+	})
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/slow", strings.NewReader(`{"value":"same"}`))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.Header.Set("Idempotency-Key", "slow-key")
+	firstResp := httptest.NewRecorder()
+	r.ServeHTTP(firstResp, firstReq)
+
+	if firstResp.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected first request timeout status 504, got %d body=%s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/slow", strings.NewReader(`{"value":"same"}`))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.Header.Set("Idempotency-Key", "slow-key")
+	secondResp := httptest.NewRecorder()
+	r.ServeHTTP(secondResp, secondReq)
+
+	if secondResp.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected second request timeout status 504, got %d body=%s", secondResp.Code, secondResp.Body.String())
+	}
+	if secondResp.Header().Get("Idempotent-Replayed") != "" {
+		t.Fatalf("expected timed out request not replay cached response")
+	}
+	if got := executions.Load(); got != 2 {
+		t.Fatalf("expected timed out request released idempotency reservation, got %d executions", got)
 	}
 }

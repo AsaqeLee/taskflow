@@ -14,5 +14,6 @@ type TaskRepository interface {
 	GetByID(ctx context.Context, id string) (domaintask.Task, error)
 	GetByIDIncludingDeleted(ctx context.Context, id string) (domaintask.Task, error)
 	List(ctx context.Context) ([]domaintask.Task, error)
+	ListVisibleToUser(ctx context.Context, userID string) ([]domaintask.Task, error)
 	Update(ctx context.Context, task domaintask.Task) (domaintask.Task, error)
 }

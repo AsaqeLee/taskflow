@@ -59,6 +59,14 @@ describe('taskWorkflow.availableActions', () => {
     expect(actions).toEqual(expect.arrayContaining(['approve', 'reject']))
   })
 
+  it('prefers backend-provided actions when present', () => {
+    const actions = availableActions(
+      task({ status: 'open', available_actions: ['assign'] }),
+      worker,
+    )
+    expect(actions).toEqual(['assign'])
+  })
+
   it('returns empty actions for unrelated user', () => {
     const outsider: User = { ...worker, id: 'u_bob' }
     const actions = availableActions(task({ status: 'assigned' }), outsider)

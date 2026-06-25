@@ -62,6 +62,9 @@ func TestTaskHandler_StartReturnsUpdatedTask(t *testing.T) {
 	if resp.Task.Status != domaintask.StatusInProgress.String() {
 		t.Fatalf("expected status %q, got %q", domaintask.StatusInProgress.String(), resp.Task.Status)
 	}
+	if len(resp.Task.AvailableActions) != 1 || resp.Task.AvailableActions[0] != "submit" {
+		t.Fatalf("expected available_actions [submit], got %v", resp.Task.AvailableActions)
+	}
 }
 
 func TestTaskHandler_StartReturnsForbiddenForNonAssignee(t *testing.T) {

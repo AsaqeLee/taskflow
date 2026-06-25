@@ -15,6 +15,15 @@ const ASSIGNEE_ACTIONS: Partial<Record<TaskStatus, TaskAction[]>> = {
   in_progress: ['submit'],
 }
 
+export const WORKFLOW_STEPS: TaskStatus[] = [
+  'open',
+  'assigned',
+  'in_progress',
+  'submitted',
+  'approved',
+  'completed',
+]
+
 export function isOwner(user: User): boolean {
   return user.role === 'owner'
 }
@@ -28,6 +37,10 @@ export function isAssignee(task: Task, user: User): boolean {
 }
 
 export function availableActions(task: Task, user: User): TaskAction[] {
+  if (task.available_actions) {
+    return task.available_actions
+  }
+
   const actions = new Set<TaskAction>()
   const status = task.status
 
@@ -70,17 +83,8 @@ export function actionLabel(action: TaskAction): string {
     reactivate: '重新激活',
     delete: '删除',
   }
-  return labels[action]
+  return labels[action] ?? action
 }
-
-export const WORKFLOW_STEPS: TaskStatus[] = [
-  'open',
-  'assigned',
-  'in_progress',
-  'submitted',
-  'approved',
-  'completed',
-]
 
 export function statusLabel(status: TaskStatus): string {
   const labels: Record<TaskStatus, string> = {

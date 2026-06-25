@@ -24,6 +24,10 @@ func NewMemoryAuditLogRepository() *MemoryAuditLogRepository {
 }
 
 func (r *MemoryAuditLogRepository) Create(ctx context.Context, log domainaudit.Log) (domainaudit.Log, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return domainaudit.Log{}, err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -33,9 +37,18 @@ func (r *MemoryAuditLogRepository) Create(ctx context.Context, log domainaudit.L
 	}
 	if log.CreatedAt().IsZero() {
 		log = domainaudit.Restore(
-			log.ID(), log.TaskID(), log.ActorID(), log.Action(),
-			log.RequestID(), log.TraceID(), log.IdempotencyKey(), log.SourceIP(), log.UserAgent(),
-			log.FromStatus(), log.ToStatus(), time.Now().UTC(),
+			log.ID(),
+			log.TaskID(),
+			log.ActorID(),
+			log.Action(),
+			log.RequestID(),
+			log.TraceID(),
+			log.IdempotencyKey(),
+			log.SourceIP(),
+			log.UserAgent(),
+			log.FromStatus(),
+			log.ToStatus(),
+			time.Now().UTC(),
 		)
 	}
 
@@ -44,6 +57,10 @@ func (r *MemoryAuditLogRepository) Create(ctx context.Context, log domainaudit.L
 }
 
 func (r *MemoryAuditLogRepository) ListByTaskID(ctx context.Context, taskID string) ([]domainaudit.Log, error) {
+	if err := errIfContextDone(ctx); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -60,11 +77,14 @@ func (r *MemoryAuditLogRepository) ListByTaskID(ctx context.Context, taskID stri
 		}
 		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
-
 	return result, nil
 }
 
 func (r *MemoryAuditLogRepository) DeleteByTaskID(ctx context.Context, taskID string) error {
+	if err := errIfContextDone(ctx); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

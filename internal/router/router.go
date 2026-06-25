@@ -30,7 +30,6 @@ func New(
 	r.Use(middleware.RequestContext())
 	r.Use(middleware.Timeout(cfg.RequestTimeout))
 	r.Use(middleware.RateLimit(rateLimiter, metrics, "global_http"))
-	r.Use(middleware.Idempotency(idempotencyStore, metrics))
 	r.Use(middleware.StructuredLogger(metrics))
 
 	r.GET("/health", systemHandler.Health)
@@ -38,18 +37,23 @@ func New(
 	r.GET("/readyz", systemHandler.Readyz)
 	r.GET("/metrics", systemHandler.Metrics)
 
+	idempotency := middleware.Idempotency(idempotencyStore, metrics)
+
 	// Public routes
-	r.POST("/auth/login", identityHandler.Login)
-	r.POST("/auth/refresh", identityHandler.Refresh)
-	r.POST("/auth/password-reset/request", identityHandler.RequestPasswordReset)
-	r.POST("/auth/password-reset/confirm", identityHandler.ConfirmPasswordReset)
+	public := r.Group("/")
+	public.Use(idempotency)
+	public.POST("/auth/login", identityHandler.Login)
+	public.POST("/auth/refresh", identityHandler.Refresh)
+	public.POST("/auth/password-reset/request", identityHandler.RequestPasswordReset)
+	public.POST("/auth/password-reset/confirm", identityHandler.ConfirmPasswordReset)
 	if cfg.AllowPublicRegister {
-		r.POST("/users", identityHandler.Register)
+		public.POST("/users", identityHandler.Register)
 	}
 
 	// Authenticated routes
 	authenticated := r.Group("/")
 	authenticated.Use(middleware.UserAuth(userRepo, cfg.JWTSecret, cfg.DevMode))
+	authenticated.Use(idempotency)
 
 	authenticated.GET("/me", identityHandler.Me)
 	authenticated.GET("/users", identityHandler.ListUsers)
