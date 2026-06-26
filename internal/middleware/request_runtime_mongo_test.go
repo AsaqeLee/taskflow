@@ -3,10 +3,15 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -82,6 +87,47 @@ func TestMongoIdempotencyStoreSharesPendingAndReplayState(t *testing.T) {
 	}
 	if string(record.Body) != `{"ok":true}` {
 		t.Fatalf("expected replay body to be preserved, got %s", string(record.Body))
+	}
+}
+
+func TestMongoIdempotencyMiddlewareReleasesTimedOutRequest(t *testing.T) {
+	collection := newMongoRuntimeCollection(t, "runtime_idempotency_timeout")
+	store := NewMongoIdempotencyStore(collection, time.Minute)
+	var executions atomic.Int32
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestContext())
+	router.Use(Timeout(10 * time.Millisecond))
+	router.Use(Idempotency(store, nil))
+	router.POST("/slow", func(c *gin.Context) {
+		executions.Add(1)
+		time.Sleep(25 * time.Millisecond)
+		c.JSON(http.StatusCreated, gin.H{"ok": true})
+	})
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/slow", strings.NewReader(`{"value":"same"}`))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.Header.Set("Idempotency-Key", "slow-key")
+	firstResp := httptest.NewRecorder()
+	router.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected first request timeout status 504, got %d body=%s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/slow", strings.NewReader(`{"value":"same"}`))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.Header.Set("Idempotency-Key", "slow-key")
+	secondResp := httptest.NewRecorder()
+	router.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected second request timeout status 504, got %d body=%s", secondResp.Code, secondResp.Body.String())
+	}
+	if secondResp.Header().Get("Idempotent-Replayed") != "" {
+		t.Fatalf("expected timed out request not to replay cached response")
+	}
+	if got := executions.Load(); got != 2 {
+		t.Fatalf("expected timed out request release idempotency reservation, got %d executions", got)
 	}
 }
 

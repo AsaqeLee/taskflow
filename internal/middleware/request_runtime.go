@@ -437,11 +437,12 @@ func Idempotency(store IdempotencyStore, metrics *observability.Metrics) gin.Han
 		capture := &responseCaptureWriter{ResponseWriter: c.Writer}
 		c.Writer = capture
 		c.Next()
+		storeCtx := idempotencyStoreContext(c.Request.Context())
 		if c.Request.Context().Err() != nil {
 			if metrics != nil {
 				metrics.ObserveIdempotencyDecision("released")
 			}
-			_ = store.Release(c.Request.Context(), scope, key, requestSum)
+			_ = store.Release(storeCtx, scope, key, requestSum)
 			return
 		}
 
@@ -449,14 +450,14 @@ func Idempotency(store IdempotencyStore, metrics *observability.Metrics) gin.Han
 			if metrics != nil {
 				metrics.ObserveIdempotencyDecision("released")
 			}
-			_ = store.Release(c.Request.Context(), scope, key, requestSum)
+			_ = store.Release(storeCtx, scope, key, requestSum)
 			return
 		}
 
 		headers := map[string]string{
 			"Content-Type": c.Writer.Header().Get("Content-Type"),
 		}
-		_ = store.Complete(c.Request.Context(), scope, key, requestSum, IdempotencyRecord{
+		_ = store.Complete(storeCtx, scope, key, requestSum, IdempotencyRecord{
 			Scope:      scope,
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
@@ -504,6 +505,13 @@ func idempotencyScope(c *gin.Context) string {
 		identity = "user:" + meta.UserID
 	}
 	return c.Request.Method + "|" + c.Request.URL.Path + "|" + identity
+}
+
+func idempotencyStoreContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func newID() string {
