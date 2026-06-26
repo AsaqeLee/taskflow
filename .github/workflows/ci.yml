@@ -126,6 +126,7 @@ jobs:
           MONGODB_URI=mongodb://127.0.0.1:27017/?replicaSet=rs0
           MONGODB_DATABASE=taskflow_ci_release
           JWT_SECRET=0123456789abcdef0123456789abcdef
+          PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/password-reset
           APP_VERSION=${GITHUB_SHA::7}
           BOOTSTRAP_USERS_FILE=$tmpdir/users.production.json
           CORS_ALLOWED_ORIGINS=https://taskflow.internal

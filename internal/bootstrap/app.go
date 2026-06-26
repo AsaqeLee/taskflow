@@ -62,6 +62,7 @@ func NewApp(cfg config.Config) (*App, error) {
 	idempotencyStore := newIdempotencyStore(cfg, db)
 	loginRateLimiter := newScopedRateLimiter(cfg.LoginRateLimitRequests, cfg.LoginRateLimitWindow, db)
 	passwordResetRateLimiter := newScopedRateLimiter(cfg.PasswordResetRateLimitRequests, cfg.PasswordResetRateLimitWindow, db)
+	passwordResetDelivery := newPasswordResetDelivery(cfg)
 
 	taskService := service.NewTaskService(taskRepo, recordRepo, auditRepo, userRepo, db)
 	taskHandler := handler.NewTaskHandler(taskService)
@@ -75,6 +76,7 @@ func NewApp(cfg config.Config) (*App, error) {
 		loginRateLimiter,
 		passwordResetRateLimiter,
 		metrics,
+		passwordResetDelivery,
 		cfg.DevMode,
 		cfg.AllowPublicRegister,
 	)
@@ -156,6 +158,17 @@ func newScopedRateLimiter(limit int, window time.Duration, db *database.Client) 
 		)
 	}
 	return middleware.NewMemoryRateLimiter(limit, window)
+}
+
+func newPasswordResetDelivery(cfg config.Config) handler.PasswordResetDelivery {
+	if cfg.PasswordResetWebhookURL == "" {
+		return nil
+	}
+	return handler.NewPasswordResetWebhookDelivery(
+		cfg.PasswordResetWebhookURL,
+		cfg.PasswordResetWebhookAuthToken,
+		&http.Client{Timeout: cfg.RequestTimeout},
+	)
 }
 
 func seedDefaultUsers(ctx context.Context, userRepo repository.UserRepository) error {

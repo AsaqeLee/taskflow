@@ -99,6 +99,23 @@ func TestValidateProductionConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects missing password reset webhook in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.PasswordResetWebhookURL = ""
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected missing password reset webhook to be rejected")
+		}
+	})
+
+	t.Run("rejects invalid password reset webhook url", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.StrictProductionConfig = false
+		cfg.PasswordResetWebhookURL = "not-a-url"
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected invalid password reset webhook URL to be rejected")
+		}
+	})
+
 	t.Run("rejects localhost cors origin in strict mode", func(t *testing.T) {
 		cfg := validProductionConfig()
 		cfg.CORSAllowedOrigins = []string{"http://localhost:5173"}
@@ -120,6 +137,7 @@ func validProductionConfig() Config {
 		AccessTokenTTL:                 2 * time.Hour,
 		RefreshTokenTTL:                7 * 24 * time.Hour,
 		PasswordResetTTL:               time.Hour,
+		PasswordResetWebhookURL:        "https://mailer.internal/hooks/password-reset",
 		RequestTimeout:                 15 * time.Second,
 		ShutdownTimeout:                10 * time.Second,
 		ServerReadTimeout:              10 * time.Second,

@@ -188,5 +188,6 @@ GitHub Actions 会在 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) �
 ## 生产环境说明
 
 - 生产部署应使用 `DEV_MODE=false`、`STRICT_PRODUCTION_CONFIG=true`、`TASK_REPOSITORY_DRIVER=mongo`。
+- 严格生产配置现在还要求设置 `PASSWORD_RESET_WEBHOOK_URL`，避免密码重置 token 只在 `DEV_MODE` 下可见。
 - 涉及事务的写路径要求 Mongo 以副本集成员或 `mongos` 方式提供，不支持独立单机 Mongo。
 - 打包前端与 API 可以通过 compose 的 `full` profile 走同域入口。

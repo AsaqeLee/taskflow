@@ -56,6 +56,8 @@ type Config struct {
 	AccessTokenTTL                 time.Duration `validate:"required,gt=0"`
 	RefreshTokenTTL                time.Duration `validate:"required,gt=0"`
 	PasswordResetTTL               time.Duration `validate:"required,gt=0"`
+	PasswordResetWebhookURL        string
+	PasswordResetWebhookAuthToken  string
 	RequestTimeout                 time.Duration `validate:"required,gt=0"`
 	ShutdownTimeout                time.Duration `validate:"required,gt=0"`
 	ServerReadTimeout              time.Duration `validate:"required,gt=0"`
@@ -100,6 +102,12 @@ func Load() Config {
 	accessTokenTTL := mustParseDuration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL)
 	refreshTokenTTL := mustParseDuration("REFRESH_TOKEN_TTL", defaultRefreshTokenTTL)
 	passwordResetTTL := mustParseDuration("PASSWORD_RESET_TTL", defaultPasswordResetTTL)
+	passwordResetWebhookURL := strings.TrimSpace(getenv("PASSWORD_RESET_WEBHOOK_URL", ""))
+	passwordResetWebhookAuthToken := strings.TrimSpace(getenvWithFile(
+		"PASSWORD_RESET_WEBHOOK_AUTH_TOKEN",
+		"PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE",
+		"",
+	))
 	requestTimeout := mustParseDuration("REQUEST_TIMEOUT", defaultRequestTimeout)
 	shutdownTimeout := mustParseDuration("SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
 	serverReadTimeout := mustParseDuration("SERVER_READ_TIMEOUT", defaultServerReadTimout)
@@ -138,6 +146,8 @@ func Load() Config {
 		AccessTokenTTL:                 accessTokenTTL,
 		RefreshTokenTTL:                refreshTokenTTL,
 		PasswordResetTTL:               passwordResetTTL,
+		PasswordResetWebhookURL:        passwordResetWebhookURL,
+		PasswordResetWebhookAuthToken:  passwordResetWebhookAuthToken,
 		RequestTimeout:                 requestTimeout,
 		ShutdownTimeout:                shutdownTimeout,
 		ServerReadTimeout:              serverReadTimeout,
@@ -193,6 +203,12 @@ func validateProductionConfig(cfg Config) error {
 	if !cfg.DevMode && len(cfg.JWTSecret) < 32 {
 		return errors.New("JWT_SECRET must be at least 32 characters when DEV_MODE=false")
 	}
+	if cfg.PasswordResetWebhookURL != "" {
+		parsed, err := url.Parse(strings.TrimSpace(cfg.PasswordResetWebhookURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("PASSWORD_RESET_WEBHOOK_URL must be a valid absolute URL, got %q", cfg.PasswordResetWebhookURL)
+		}
+	}
 	if !cfg.StrictProductionConfig {
 		return nil
 	}
@@ -204,6 +220,9 @@ func validateProductionConfig(cfg Config) error {
 	}
 	if cfg.AllowPublicRegister {
 		return errors.New("STRICT_PRODUCTION_CONFIG=true requires ALLOW_PUBLIC_REGISTER=false")
+	}
+	if cfg.PasswordResetWebhookURL == "" {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires PASSWORD_RESET_WEBHOOK_URL be set")
 	}
 	if isPlaceholderJWTSecret(cfg.JWTSecret) {
 		return errors.New("STRICT_PRODUCTION_CONFIG=true requires a non-placeholder JWT_SECRET")

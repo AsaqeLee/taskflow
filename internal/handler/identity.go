@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -24,6 +25,7 @@ type IdentityHandler struct {
 	loginRateLimiter         middleware.RateLimiter
 	passwordResetRateLimiter middleware.RateLimiter
 	metrics                  *observability.Metrics
+	passwordResetDelivery    PasswordResetDelivery
 	devMode                  bool
 	allowPublicRegister      bool
 }
@@ -48,6 +50,7 @@ func NewIdentityHandler(
 	loginRateLimiter middleware.RateLimiter,
 	passwordResetRateLimiter middleware.RateLimiter,
 	metrics *observability.Metrics,
+	passwordResetDelivery PasswordResetDelivery,
 	devMode bool,
 	allowPublicRegister bool,
 ) *IdentityHandler {
@@ -60,6 +63,7 @@ func NewIdentityHandler(
 		loginRateLimiter:         loginRateLimiter,
 		passwordResetRateLimiter: passwordResetRateLimiter,
 		metrics:                  metrics,
+		passwordResetDelivery:    passwordResetDelivery,
 		devMode:                  devMode,
 		allowPublicRegister:      allowPublicRegister,
 	}
@@ -282,8 +286,22 @@ func (h *IdentityHandler) RequestPasswordReset(c *gin.Context) {
 		httpapi.WriteError(c, http.StatusInternalServerError, "password_reset_failed", "failed to create password reset token")
 		return
 	}
-	if rawToken != "" && h.devMode {
-		response["reset_token"] = rawToken
+	if rawToken != "" {
+		if h.devMode {
+			response["reset_token"] = rawToken
+		} else if h.passwordResetDelivery != nil {
+			err := h.passwordResetDelivery.Deliver(c.Request.Context(), PasswordResetNotice{
+				UserID:    req.ID,
+				Token:     rawToken,
+				ExpiresAt: time.Now().UTC().Add(h.passwordResetTTL),
+			})
+			if err != nil {
+				slog.Error("password_reset_delivery_failed", slog.String("user_id", req.ID), slog.Any("error", err))
+				h.recordIdentityEvent(identityFlowPasswordResetRequest, "delivery_failed")
+				c.JSON(http.StatusAccepted, response)
+				return
+			}
+		}
 	}
 
 	h.recordIdentityEvent(identityFlowPasswordResetRequest, "accepted")

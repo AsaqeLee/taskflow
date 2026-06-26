@@ -34,6 +34,7 @@ func TestIdentityHandler_RegisterAndMe(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		true,
 		true,
 	)
@@ -146,6 +147,7 @@ func TestIdentityHandler_RefreshResetAndDisable(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		true,
 		true,
 	)
@@ -252,6 +254,7 @@ func TestIdentityHandler_RefreshReuseAndSessionRevocation(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		true,
 		true,
 	)
@@ -360,6 +363,7 @@ func TestIdentityHandler_ListUsers(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		true,
 		true,
 	)
@@ -438,6 +442,7 @@ func TestIdentityHandler_ListUsers_ActiveFilter(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		true,
 		true,
 	)
@@ -520,6 +525,7 @@ func TestIdentityHandler_OwnerOnlyRegister(t *testing.T) {
 		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
 		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
 		observability.NewMetrics(),
+		nil,
 		false,
 		false,
 	)

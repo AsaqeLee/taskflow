@@ -188,5 +188,6 @@ GitHub Actions runs both frontend and backend checks in [`.github/workflows/ci.y
 ## Notes on production behavior
 
 - Production deployments should use `DEV_MODE=false`, `STRICT_PRODUCTION_CONFIG=true`, and `TASK_REPOSITORY_DRIVER=mongo`.
+- Strict production validation also requires `PASSWORD_RESET_WEBHOOK_URL` so password reset tokens have a delivery path outside `DEV_MODE`.
 - Mongo transaction-backed flows require a replica set member or `mongos`, not a standalone Mongo server.
 - The packaged frontend and API can be served together through the compose `full` profile.
