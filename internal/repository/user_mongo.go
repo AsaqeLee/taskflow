@@ -8,6 +8,7 @@ import (
 	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type MongoUserRepository struct {
@@ -178,7 +179,11 @@ func (r *MongoUserRepository) List(ctx context.Context, activeOnly bool) ([]doma
 		filter["active"] = true
 	}
 
-	cursor, err := r.collection.Find(ctx, filter)
+	findOptions := options.Find().SetSort(bson.D{
+		{Key: "created_at", Value: 1},
+		{Key: "_id", Value: 1},
+	})
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
 	if err != nil {
 		return nil, err
 	}

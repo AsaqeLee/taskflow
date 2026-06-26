@@ -7,7 +7,11 @@ import { TaskActionsBar } from '../components/TaskActionsBar'
 import { TaskBasicInfoPanel } from '../components/TaskBasicInfoPanel'
 import { TaskDetailHeader } from '../components/TaskDetailHeader'
 import { TaskTimelineTabs } from '../components/TaskTimelineTabs'
-import { actionNeedsContent, shouldOpenActionDialog } from '../domain/taskWorkflow'
+import {
+  actionNeedsContent,
+  shouldLoadAssignableUsers,
+  shouldOpenActionDialog,
+} from '../domain/taskWorkflow'
 import { useAsyncData } from '../hooks/useAsyncData'
 import {
   approveTask,
@@ -68,12 +72,23 @@ export function TaskDetailPage() {
     setTitle(data.task.title)
     setDescription(data.task.description)
     return data
-  }, [id])
+ }, [id, setDescription, setTitle])
 
-  const usersLoader = useCallback(() => fetchUsers(true), [])
+ const taskState = useAsyncData<TaskPageData>(`task:${id}`, taskLoader)
+ const shouldFetchUsers =
+  currentUser != null &&
+  taskState.data != null &&
+  shouldLoadAssignableUsers(taskState.data.task, currentUser)
 
-  const taskState = useAsyncData<TaskPageData>(`task:${id}`, taskLoader)
-  const usersState = useAsyncData<User[]>(`users:${id}`, usersLoader)
+ const usersLoader = useCallback(
+  () => (shouldFetchUsers ? fetchUsers(true) : Promise.resolve([])),
+  [shouldFetchUsers],
+ )
+
+ const usersState = useAsyncData<User[]>(
+  `users:${id}:${shouldFetchUsers ? 'assignable' : 'skip'}`,
+  usersLoader,
+ )
 
   async function handleAction(
     action: TaskAction,

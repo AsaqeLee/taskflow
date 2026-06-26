@@ -125,6 +125,23 @@ var Definitions = []Migration{
 			})
 		},
 	},
+	{
+		Version:     "2026062501",
+		Description: "add user listing index",
+		Up: func(ctx context.Context, db *mongo.Database) error {
+			return createIndexes(ctx, db, map[string][]mongo.IndexModel{
+				"users": {
+					{
+						Keys: bson.D{
+							{Key: "active", Value: 1},
+							{Key: "created_at", Value: 1},
+							{Key: "_id", Value: 1},
+						},
+					},
+				},
+			})
+		},
+	},
 }
 
 func ApplyAll(ctx context.Context, db *mongo.Database) error {

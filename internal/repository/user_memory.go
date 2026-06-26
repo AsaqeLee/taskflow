@@ -181,6 +181,9 @@ func (r *MemoryUserRepository) List(ctx context.Context, activeOnly bool) ([]dom
 	}
 
 	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt().Equal(result[j].CreatedAt()) {
+			return result[i].ID() < result[j].ID()
+		}
 		return result[i].CreatedAt().Before(result[j].CreatedAt())
 	})
 	return result, nil

@@ -59,6 +59,10 @@ export function availableActions(task: Task, user: User): TaskAction[] {
   return Array.from(actions)
 }
 
+export function shouldLoadAssignableUsers(task: Task, user: User): boolean {
+  return availableActions(task, user).includes('assign')
+}
+
 export function actionNeedsContent(action: TaskAction): boolean {
   return ['submit', 'reject', 'approve', 'cancel', 'reactivate'].includes(action)
 }

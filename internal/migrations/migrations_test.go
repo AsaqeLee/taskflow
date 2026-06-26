@@ -82,6 +82,9 @@ func TestApplyAllAppliesMigrationsOnce(t *testing.T) {
 	if !collectionHasIndexKey(ctx, t, db.Collection("refresh_tokens"), "token_hash") {
 		t.Fatalf("expected refresh_tokens to have token_hash index")
 	}
+	if !collectionHasIndexKey(ctx, t, db.Collection("users"), "active") {
+		t.Fatalf("expected users to have active index")
+	}
 	if !collectionHasIndexKey(ctx, t, db.Collection("runtime_idempotency_keys"), "expires_at") {
 		t.Fatalf("expected runtime_idempotency_keys to have expires_at index")
 	}

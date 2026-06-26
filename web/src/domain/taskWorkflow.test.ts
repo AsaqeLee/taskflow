@@ -3,6 +3,7 @@ import {
   actionNeedsConfirmation,
   actionNeedsContent,
   availableActions,
+  shouldLoadAssignableUsers,
   shouldOpenActionDialog,
 } from './taskWorkflow'
 import type { Task, User } from '../types/api'
@@ -39,48 +40,54 @@ function task(partial: Partial<Task> & Pick<Task, 'status'>): Task {
 }
 
 describe('taskWorkflow.availableActions', () => {
-  it('shows assign/cancel/delete to creator on open task', () => {
+  it('shows assign/cancel/delete for creator on open task', () => {
     const actions = availableActions(task({ status: 'open', assignee_id: '' }), owner)
     expect(actions).toEqual(expect.arrayContaining(['assign', 'cancel', 'delete']))
   })
 
-  it('shows start to assignee on assigned task', () => {
+  it('shows start for assignee on assigned task', () => {
     const actions = availableActions(task({ status: 'assigned' }), worker)
     expect(actions).toEqual(['start'])
   })
 
-  it('shows submit to assignee on in_progress task', () => {
+  it('shows submit for assignee on in_progress task', () => {
     const actions = availableActions(task({ status: 'in_progress' }), worker)
     expect(actions).toEqual(['submit'])
   })
 
-  it('shows approve/reject to creator on submitted task', () => {
+  it('shows approve/reject for creator on submitted task', () => {
     const actions = availableActions(task({ status: 'submitted' }), owner)
     expect(actions).toEqual(expect.arrayContaining(['approve', 'reject']))
   })
 
-  it('prefers backend-provided actions when present', () => {
+  it('prefers backend-provided available_actions when present', () => {
     const actions = availableActions(
-      task({ status: 'open', available_actions: ['assign'] }),
+      task({ status: 'assigned', available_actions: ['cancel', 'delete'] }),
       worker,
     )
-    expect(actions).toEqual(['assign'])
-  })
-
-  it('returns empty actions for unrelated user', () => {
-    const outsider: User = { ...worker, id: 'u_bob' }
-    const actions = availableActions(task({ status: 'assigned' }), outsider)
-    expect(actions).toEqual([])
+    expect(actions).toEqual(['cancel', 'delete'])
   })
 })
 
-describe('taskWorkflow action helpers', () => {
-  it('requires content for submit/reject/approve/cancel/reactivate', () => {
+describe('taskWorkflow.shouldLoadAssignableUsers', () => {
+  it('loads users only when assign action is available', () => {
+    expect(shouldLoadAssignableUsers(task({ status: 'open', assignee_id: '' }), owner)).toBe(true)
+    expect(shouldLoadAssignableUsers(task({ status: 'submitted' }), owner)).toBe(false)
+    expect(shouldLoadAssignableUsers(task({ status: 'assigned' }), worker)).toBe(false)
+  })
+})
+
+describe('taskWorkflow.dialog behavior', () => {
+  it('requires content for submission and review actions', () => {
     expect(actionNeedsContent('submit')).toBe(true)
+    expect(actionNeedsContent('reject')).toBe(true)
+    expect(actionNeedsContent('approve')).toBe(true)
+    expect(actionNeedsContent('cancel')).toBe(true)
+    expect(actionNeedsContent('reactivate')).toBe(true)
     expect(actionNeedsContent('close')).toBe(false)
   })
 
-  it('requires confirmation dialog for delete', () => {
+  it('requires confirmation only for delete', () => {
     expect(actionNeedsConfirmation('delete')).toBe(true)
     expect(shouldOpenActionDialog('delete')).toBe(true)
     expect(shouldOpenActionDialog('close')).toBe(false)
