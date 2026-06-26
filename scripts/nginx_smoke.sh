@@ -8,6 +8,7 @@ ENV_FILE="${1:-}"
 WEB_PORT="${WEB_PORT:-8081}"
 BASE_URL="${NGINX_BASE_URL:-http://127.0.0.1:${WEB_PORT}}"
 HEADERS_FILE="${HEADERS_FILE:-/tmp/taskflow-nginx-headers.txt}"
+compose_up_mode="${STACK_COMPOSE_UP_MODE:-build}"
 
 # shellcheck disable=SC1091
 source "$ROOT/scripts/compose_env.sh"
@@ -30,12 +31,24 @@ load_compose_context
 OWNER_ID="${OWNER_ID:-u_owner}"
 OWNER_PASS="${OWNER_PASS:-change-me-owner-123}"
 
-if [[ ! -f "$ROOT/web/dist/index.html" ]]; then
-  log "building frontend bundle"
-  bash scripts/web_build_smoke.sh
-fi
-
-compose_cmd --profile full up -d --build web
+case "$compose_up_mode" in
+  build)
+    if [[ ! -f "$ROOT/web/dist/index.html" ]]; then
+      log "building frontend bundle"
+      bash scripts/web_build_smoke.sh
+    fi
+    compose_cmd --profile full up -d --build web
+    ;;
+  no-build)
+    compose_cmd --profile full up -d --no-build web
+    ;;
+  skip)
+    log "skipping compose up; checking existing full-profile stack"
+    ;;
+  *)
+    fail "unsupported STACK_COMPOSE_UP_MODE=$compose_up_mode"
+    ;;
+esac
 wait_compose_log bootstrap "bootstrap completed" 40 2 || fail "bootstrap did not report completion"
 
 for attempt in {1..30}; do

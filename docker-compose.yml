@@ -12,6 +12,9 @@ x-common-env: &common-env
   JWT_SECRET: "${JWT_SECRET:-compose-local-secret-must-be-at-least-32-chars}"
   APP_VERSION: "${APP_VERSION:-compose-local}"
   LOG_LEVEL: "${LOG_LEVEL:-info}"
+  PASSWORD_RESET_WEBHOOK_URL: "${PASSWORD_RESET_WEBHOOK_URL:-}"
+  PASSWORD_RESET_WEBHOOK_AUTH_TOKEN: "${PASSWORD_RESET_WEBHOOK_AUTH_TOKEN:-}"
+  PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE: "${PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE:-}"
 
 x-runtime-env: &runtime-env
   <<: *common-env
@@ -84,6 +87,7 @@ services:
       - "13133:13133"
 
   migrate:
+    image: "${TASKFLOW_IMAGE:-taskflow:compose-local}"
     build:
       context: .
       args: *app-build-args
@@ -95,6 +99,7 @@ services:
     environment: *runtime-env
 
   bootstrap:
+    image: "${TASKFLOW_IMAGE:-taskflow:compose-local}"
     build:
       context: .
       args: *app-build-args
@@ -111,6 +116,7 @@ services:
       USERS_FILE: /bootstrap/users.json
 
   taskflow:
+    image: "${TASKFLOW_IMAGE:-taskflow:compose-local}"
     build:
       context: .
       args: *app-build-args

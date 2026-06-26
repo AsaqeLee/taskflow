@@ -28,6 +28,7 @@
 - [ ] `DEV_MODE=false` 的严格生产参数校验已通过
 - [ ] `STRICT_PRODUCTION_CONFIG=true` 已启用并通过正向校验
 - [ ] `JWT_SECRET` / `APP_VERSION` / `BOOTSTRAP_USERS_FILE` / `CORS_ALLOWED_ORIGINS` 已能通过 `.env` 或 shell 注入
+- [ ] 已确认受控发布入口可用：`bash scripts/intranet_release.sh .env`
 - [ ] `go test ./...` 通过
 - [ ] `cd web && npm run lint && npm run test && npm run build` 通过
 - [ ] `bash scripts/compose_smoke.sh` 通过

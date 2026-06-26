@@ -63,21 +63,38 @@ bash scripts/validate_production_env.sh .env
 
 若失败，先修正 `.env`，不要带着占位值继续部署。
 
-## 步骤 3：启动服务
+## 步骤 3：通过受控入口发布
+
+推荐直接使用受控发布脚本，它会串联镜像构建、migration、compose 部署、`/readyz` 检查和基础 smoke。
 
 后端和 Mongo 基线：
 
 ```bash
-docker compose up -d --build
+bash scripts/intranet_release.sh .env
 ```
 
 如果需要同域 Web 入口：
 
 ```bash
-docker compose --profile full up -d --build web
+TASKFLOW_RELEASE_INCLUDE_WEB=true bash scripts/intranet_release.sh .env
 ```
 
-## 步骤 4：检查健康状态
+如果还要补跑浏览器侧验收：
+
+```bash
+TASKFLOW_RELEASE_INCLUDE_WEB=true \
+TASKFLOW_RELEASE_RUN_WEB_ACCEPTANCE=true \
+bash scripts/intranet_release.sh .env
+```
+
+说明：
+
+- 脚本失败时，如当前机器上存在上一版 `taskflow` 容器镜像，会自动尝试回滚到该镜像。
+- 首次部署若没有上一版镜像，可预期不会自动回滚，此时按下文回滚步骤人工处理。
+
+## 步骤 4：补充检查健康状态
+
+即使脚本已检查，也建议手工再看一眼：
 
 ```bash
 docker compose ps
@@ -91,27 +108,7 @@ curl -sf http://127.0.0.1:8080/metrics | head
 curl -sf http://127.0.0.1:8081/
 ```
 
-## 步骤 5：执行最小验收
-
-至少执行：
-
-```bash
-bash scripts/compose_smoke.sh
-```
-
-如使用同域入口，补跑：
-
-```bash
-bash scripts/nginx_smoke.sh
-```
-
-如需要浏览器侧确认，补跑：
-
-```bash
-bash scripts/web_acceptance_smoke.sh
-```
-
-## 步骤 6：验证主流程
+## 步骤 5：验证主流程
 
 在目标环境确认这些动作可用：
 

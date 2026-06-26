@@ -29,6 +29,7 @@ scripts/*
 !scripts/users.example.json
 !scripts/validate_production_env.sh
 !scripts/release_candidate_check.sh
+!scripts/intranet_release.sh
 !scripts/web_acceptance_smoke.sh
 !scripts/monitoring_smoke.sh
 !scripts/nginx_smoke.sh

@@ -78,6 +78,7 @@ LOG_LEVEL=info
 ACCESS_TOKEN_TTL=2h
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
+PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/taskflow-password-reset
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW=1m
 LOGIN_RATE_LIMIT_REQUESTS=10
@@ -97,9 +98,10 @@ Optional secret-file inputs:
 ```env
 JWT_SECRET_FILE=/run/secrets/taskflow_jwt_secret
 MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
+PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
 ```
 
-`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, and other obviously non-production inputs.
+`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, missing `PASSWORD_RESET_WEBHOOK_URL`, and other obviously non-production inputs.
 
 Validate the env file before rollout:
 
@@ -165,6 +167,18 @@ docker compose --profile full up -d --build web
 
 Compose defaults such as `compose-local` secrets, `compose-local` app version, and local CORS origins are development-only and must be overridden for intranet or production use.
 
+Preferred controlled compose release path:
+
+```bash
+bash scripts/intranet_release.sh .env
+```
+
+For the packaged same-origin web entry:
+
+```bash
+TASKFLOW_RELEASE_INCLUDE_WEB=true bash scripts/intranet_release.sh .env
+```
+
 ## Health and observability
 
 Important endpoints:
@@ -190,13 +204,10 @@ bash scripts/monitoring_smoke.sh
 
 Recommended order:
 
-1. Build and tag the image.
-2. Validate `.env` with `scripts/validate_production_env.sh`.
-3. Run `taskflow-migrate`.
-4. Start the new version.
-5. Wait for `/readyz` to return `200`.
-6. Run smoke checks before shifting or widening traffic.
-7. Keep the previous image available until core checks pass.
+1. Validate `.env` with `scripts/validate_production_env.sh`.
+2. Run `bash scripts/intranet_release.sh .env` as the controlled release entry.
+3. If needed, rerun targeted smoke or browser checks before widening traffic.
+4. Keep the previous image available until core checks pass.
 
 Useful post-start checks:
 
