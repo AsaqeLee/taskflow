@@ -79,6 +79,7 @@ ACCESS_TOKEN_TTL=2h
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
 PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/taskflow-password-reset
+PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
 RATE_LIMIT_REQUESTS=120
 RATE_LIMIT_WINDOW=1m
 LOGIN_RATE_LIMIT_REQUESTS=10
@@ -101,7 +102,7 @@ MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
 ```
 
-`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, missing `PASSWORD_RESET_WEBHOOK_URL`, and other obviously non-production inputs.
+`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, missing `PASSWORD_RESET_WEBHOOK_URL`, non-HTTPS password-reset webhooks, missing password-reset webhook auth, and other obviously non-production inputs.
 
 Validate the env file before rollout:
 
@@ -222,20 +223,21 @@ bash scripts/web_acceptance_smoke.sh
 
 The current migration set is additive, and task deletion is implemented as soft delete, so rollback is operationally straightforward.
 
-Use the helper script for Docker-based rollback:
+Use the helper script for compose-based rollback:
 
 ```bash
 TASKFLOW_PREVIOUS_IMAGE=taskflow:previous \
 TASKFLOW_ENV_FILE=.env.production \
-TASKFLOW_CONTAINER_NAME=taskflow \
-TASKFLOW_PORT=8080 \
+TASKFLOW_ROLLBACK_INCLUDE_WEB=true \
 ./scripts/rollback_image.sh
 ```
+
+For legacy single-container deployments, set `TASKFLOW_ROLLBACK_MODE=container`.
 
 Recommended rollback flow:
 
 1. Stop sending traffic to the new version.
-2. Shift traffic back to the previous image or container.
+2. Shift traffic back to the previous compose image.
 3. Reuse the same Mongo database.
 4. Inspect logs, request IDs, trace IDs, and retained audit history for failed requests.
 

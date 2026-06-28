@@ -28,6 +28,7 @@ fi
 
 jwt_secret="$(openssl rand -hex 32)"
 app_version="$(git rev-parse --short HEAD)"
+password_reset_webhook_token="$(openssl rand -hex 24)"
 owner_pass="$(openssl rand -hex 16)"
 alice_pass="$(openssl rand -hex 16)"
 bob_pass="$(openssl rand -hex 16)"
@@ -71,6 +72,8 @@ LOG_LEVEL=info
 ACCESS_TOKEN_TTL=2h
 REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
+PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/taskflow-password-reset
+PASSWORD_RESET_WEBHOOK_AUTH_TOKEN=${password_reset_webhook_token}
 TRACING_ENABLED=false
 TRACING_ENDPOINT=otel-collector:4318
 TRACING_INSECURE=true

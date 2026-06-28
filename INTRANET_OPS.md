@@ -28,12 +28,15 @@ Mongo 数据在 volume `taskflow_mongo_data`，重启 taskflow 不丢数据。
 
 ```bash
 git pull
-docker compose build taskflow
-docker compose up -d migrate taskflow
-bash scripts/nginx_smoke.sh
+
+# API-only
+bash scripts/intranet_release.sh .env
+
+# Same-origin nginx entry
+TASKFLOW_RELEASE_INCLUDE_WEB=true bash scripts/intranet_release.sh .env
 ```
 
-`migrate` 服务幂等；升级后确认 `/readyz`、同域入口与核心流程。
+发布失败时，优先使用 `scripts/rollback_image.sh` 回滚到上一镜像；升级后确认 `/readyz`、同域入口与核心流程。
 
 ## 监控基线
 

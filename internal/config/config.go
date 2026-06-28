@@ -203,10 +203,18 @@ func validateProductionConfig(cfg Config) error {
 	if !cfg.DevMode && len(cfg.JWTSecret) < 32 {
 		return errors.New("JWT_SECRET must be at least 32 characters when DEV_MODE=false")
 	}
+
+	var parsedPasswordResetWebhookURL *url.URL
 	if cfg.PasswordResetWebhookURL != "" {
 		parsed, err := url.Parse(strings.TrimSpace(cfg.PasswordResetWebhookURL))
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			return fmt.Errorf("PASSWORD_RESET_WEBHOOK_URL must be a valid absolute URL, got %q", cfg.PasswordResetWebhookURL)
+		}
+		switch strings.ToLower(parsed.Scheme) {
+		case "http", "https":
+			parsedPasswordResetWebhookURL = parsed
+		default:
+			return fmt.Errorf("PASSWORD_RESET_WEBHOOK_URL must use http or https, got %q", cfg.PasswordResetWebhookURL)
 		}
 	}
 	if !cfg.StrictProductionConfig {
@@ -223,6 +231,12 @@ func validateProductionConfig(cfg Config) error {
 	}
 	if cfg.PasswordResetWebhookURL == "" {
 		return errors.New("STRICT_PRODUCTION_CONFIG=true requires PASSWORD_RESET_WEBHOOK_URL be set")
+	}
+	if parsedPasswordResetWebhookURL == nil || !strings.EqualFold(parsedPasswordResetWebhookURL.Scheme, "https") {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires PASSWORD_RESET_WEBHOOK_URL to use https")
+	}
+	if strings.TrimSpace(cfg.PasswordResetWebhookAuthToken) == "" {
+		return errors.New("STRICT_PRODUCTION_CONFIG=true requires PASSWORD_RESET_WEBHOOK_AUTH_TOKEN or PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE")
 	}
 	if isPlaceholderJWTSecret(cfg.JWTSecret) {
 		return errors.New("STRICT_PRODUCTION_CONFIG=true requires a non-placeholder JWT_SECRET")

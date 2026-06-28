@@ -107,6 +107,22 @@ func TestValidateProductionConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects non-https password reset webhook in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.PasswordResetWebhookURL = "http://mailer.internal/hooks/password-reset"
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected non-https password reset webhook to be rejected")
+		}
+	})
+
+	t.Run("rejects missing password reset webhook auth token in strict mode", func(t *testing.T) {
+		cfg := validProductionConfig()
+		cfg.PasswordResetWebhookAuthToken = ""
+		if err := validateProductionConfig(cfg); err == nil {
+			t.Fatal("expected missing password reset webhook auth token to be rejected")
+		}
+	})
+
 	t.Run("rejects invalid password reset webhook url", func(t *testing.T) {
 		cfg := validProductionConfig()
 		cfg.StrictProductionConfig = false
@@ -138,6 +154,7 @@ func validProductionConfig() Config {
 		RefreshTokenTTL:                7 * 24 * time.Hour,
 		PasswordResetTTL:               time.Hour,
 		PasswordResetWebhookURL:        "https://mailer.internal/hooks/password-reset",
+		PasswordResetWebhookAuthToken:  "reset-webhook-token",
 		RequestTimeout:                 15 * time.Second,
 		ShutdownTimeout:                10 * time.Second,
 		ServerReadTimeout:              10 * time.Second,

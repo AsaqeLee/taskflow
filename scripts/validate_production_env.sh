@@ -69,13 +69,17 @@ esac
 password_reset_webhook_url="$(trim "${PASSWORD_RESET_WEBHOOK_URL:-}")"
 [[ -n "$password_reset_webhook_url" ]] || fail "PASSWORD_RESET_WEBHOOK_URL is required"
 case "$password_reset_webhook_url" in
-  http://*|https://*) ;;
-  *) fail "PASSWORD_RESET_WEBHOOK_URL must be an absolute http(s) URL" ;;
+  https://*) ;;
+  *) fail "PASSWORD_RESET_WEBHOOK_URL must be an absolute https URL" ;;
 esac
+password_reset_webhook_auth_token="$(trim "${PASSWORD_RESET_WEBHOOK_AUTH_TOKEN:-}")"
 if [[ -n "${PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE:-}" ]]; then
   password_reset_webhook_auth_token_file="$(resolve_path "${PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE}")"
   [[ -f "$password_reset_webhook_auth_token_file" ]] || fail "PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE not found: $password_reset_webhook_auth_token_file"
+  password_reset_webhook_auth_token="$(tr -d '\r\n' <"$password_reset_webhook_auth_token_file")"
 fi
+password_reset_webhook_auth_token="$(trim "$password_reset_webhook_auth_token")"
+[[ -n "$password_reset_webhook_auth_token" ]] || fail "PASSWORD_RESET_WEBHOOK_AUTH_TOKEN or PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE is required"
 
 bootstrap_file="$(trim "${BOOTSTRAP_USERS_FILE:-}")"
 [[ -n "$bootstrap_file" ]] || fail "BOOTSTRAP_USERS_FILE is required"

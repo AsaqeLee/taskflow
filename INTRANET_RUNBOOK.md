@@ -42,6 +42,8 @@ JWT_SECRET=<openssl rand -hex 32 的输出>
 APP_VERSION=<git tag 或 short SHA>
 BOOTSTRAP_USERS_FILE=./scripts/users.intranet.json
 STRICT_PRODUCTION_CONFIG=true
+PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/taskflow-password-reset
+PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
 ```
 
 如果前后端分离部署，再设置：
@@ -135,6 +137,16 @@ curl -sf http://127.0.0.1:8081/
 回滚前先停止向新版本送流量，再执行：
 
 ```bash
+TASKFLOW_PREVIOUS_IMAGE=taskflow:previous \
+TASKFLOW_ENV_FILE=.env.production \
+TASKFLOW_ROLLBACK_INCLUDE_WEB=true \
+./scripts/rollback_image.sh
+```
+
+如果是历史单容器部署，再显式切回兼容模式：
+
+```bash
+TASKFLOW_ROLLBACK_MODE=container \
 TASKFLOW_PREVIOUS_IMAGE=taskflow:previous \
 TASKFLOW_ENV_FILE=.env.production \
 TASKFLOW_CONTAINER_NAME=taskflow \

@@ -98,13 +98,15 @@ rollback_release() {
   fi
 
   log "rolling back to ${rollback_image}"
-  export TASKFLOW_IMAGE="$rollback_image"
-  if is_true "$INCLUDE_WEB"; then
-    compose_cmd --profile full up -d --no-build taskflow web
-  else
-    compose_cmd up -d --no-build taskflow
-  fi
-  wait_ready "$ready_url" || log "rollback readiness probe failed"
+  env \
+    TASKFLOW_ROLLBACK_MODE=compose \
+    TASKFLOW_PREVIOUS_IMAGE="$rollback_image" \
+    TASKFLOW_ENV_FILE="$ENV_FILE" \
+    TASKFLOW_HEALTH_URL="$ready_url" \
+    TASKFLOW_READY_RETRIES="$READY_RETRIES" \
+    TASKFLOW_READY_SLEEP_SECONDS="$READY_SLEEP_SECONDS" \
+    TASKFLOW_ROLLBACK_INCLUDE_WEB="$INCLUDE_WEB" \
+    bash "$ROOT/scripts/rollback_image.sh" || log "rollback helper failed"
 }
 
 on_exit() {
