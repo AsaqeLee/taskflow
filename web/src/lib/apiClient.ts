@@ -7,11 +7,13 @@ import { notifySessionExpired } from './session'
 import type {
   ApiError,
   AuditLog,
+  PasswordResetRequestResponse,
   SessionResponse,
   Task,
   TaskRecordInput,
   TaskRecord,
   User,
+  UserRole,
 } from '../types/api'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
@@ -129,6 +131,34 @@ export async function login(id: string, password: string): Promise<SessionRespon
   return session
 }
 
+export async function requestPasswordReset(
+  id: string,
+): Promise<PasswordResetRequestResponse> {
+  return request<PasswordResetRequestResponse>('/auth/password-reset/request', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+}
+
+export async function confirmPasswordReset(
+  id: string,
+  token: string,
+  newPassword: string,
+): Promise<User> {
+  const body = await request<{ status: string; user: User }>(
+    '/auth/password-reset/confirm',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        id,
+        token,
+        new_password: newPassword,
+      }),
+    },
+  )
+  return body.user
+}
+
 export async function fetchMe(): Promise<User> {
   const body = await request<{ user: User }>('/me')
   return body.user
@@ -138,6 +168,32 @@ export async function fetchUsers(activeOnly = true): Promise<User[]> {
   const query = activeOnly ? '?active=true' : ''
   const body = await request<{ users: User[] }>(`/users${query}`)
   return body.users
+}
+
+export async function createUser(
+  id: string,
+  name: string,
+  role: UserRole,
+  password: string,
+): Promise<User> {
+  const body = await request<{ user: User }>('/users', {
+    method: 'POST',
+    body: JSON.stringify({ id, name, role, password }),
+  })
+  return body.user
+}
+
+export async function disableUser(id: string): Promise<User> {
+  const body = await request<{ user: User }>(`/users/${id}/disable`, {
+    method: 'POST',
+  })
+  return body.user
+}
+
+export async function revokeUserSessions(id: string): Promise<void> {
+  await request<{ status: string }>(`/users/${id}/revoke-sessions`, {
+    method: 'POST',
+  })
 }
 
 export async function fetchTasks(): Promise<Task[]> {

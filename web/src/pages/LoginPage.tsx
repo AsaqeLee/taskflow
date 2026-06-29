@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { login } from '../lib/apiClient'
 
@@ -62,14 +62,29 @@ export function LoginPage() {
           <ErrorAlert error={error} />
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-4 w-full rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+      <button
+        type="submit"
+        disabled={loading}
+        className="mt-4 w-full rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+      >
+        {loading ? '登录中…' : '登录'}
+      </button>
+
+      <div className="mt-4 flex flex-col gap-2 text-sm">
+        <Link
+          to="/password-reset/request"
+          className="text-blue-700 hover:text-blue-900"
         >
-          {loading ? '登录中…' : '登录'}
-        </button>
-      </form>
-    </div>
+          忘记密码
+        </Link>
+        <Link
+          to="/password-reset/confirm"
+          className="text-slate-600 hover:text-slate-900"
+        >
+          已有重置令牌
+        </Link>
+      </div>
+    </form>
+  </div>
   )
 }

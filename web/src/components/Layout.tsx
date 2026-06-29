@@ -18,17 +18,22 @@ export function Layout() {
             <Link to="/tasks" className="text-lg font-semibold text-slate-900">
               TaskFlow
             </Link>
-            <nav aria-label="主导航" className="flex flex-wrap gap-4 text-sm">
-              <Link to="/tasks" className="text-slate-600 hover:text-slate-900">
-                任务
+          <nav aria-label="主导航" className="flex flex-wrap gap-4 text-sm">
+            <Link to="/tasks" className="text-slate-600 hover:text-slate-900">
+              任务
+            </Link>
+            <Link to="/tasks/new" className="text-slate-600 hover:text-slate-900">
+              新建
+            </Link>
+            {user?.role === 'owner' ? (
+              <Link to="/users" className="text-slate-600 hover:text-slate-900">
+                用户
               </Link>
-              <Link to="/tasks/new" className="text-slate-600 hover:text-slate-900">
-                新建
-              </Link>
-              <Link to="/me" className="text-slate-600 hover:text-slate-900">
-                我的
-              </Link>
-            </nav>
+            ) : null}
+            <Link to="/me" className="text-slate-600 hover:text-slate-900">
+              我的
+            </Link>
+          </nav>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             {user ? (

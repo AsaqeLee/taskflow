@@ -5,9 +5,12 @@ import { Layout } from './components/Layout'
 import { isLoggedIn } from './lib/auth'
 import { LoginPage } from './pages/LoginPage'
 import { MePage } from './pages/MePage'
+import { PasswordResetConfirmPage } from './pages/PasswordResetConfirmPage'
+import { PasswordResetRequestPage } from './pages/PasswordResetRequestPage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
 import { TaskListPage } from './pages/TaskListPage'
 import { TaskNewPage } from './pages/TaskNewPage'
+import { UsersPage } from './pages/UsersPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn()) {
@@ -33,21 +36,24 @@ export default function App() {
     <>
       <SessionExpiryRedirect />
       <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        element={
-          <RequireAuth>
-            <Layout />
-          </RequireAuth>
-        }
-      >
-        <Route path="/" element={<Navigate to="/tasks" replace />} />
-        <Route path="/tasks" element={<TaskListPage />} />
-        <Route path="/tasks/new" element={<TaskNewPage />} />
-        <Route path="/tasks/:id" element={<TaskDetailPage />} />
-        <Route path="/me" element={<MePage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/tasks" replace />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/password-reset/request" element={<PasswordResetRequestPage />} />
+        <Route path="/password-reset/confirm" element={<PasswordResetConfirmPage />} />
+        <Route
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
+          <Route path="/" element={<Navigate to="/tasks" replace />} />
+          <Route path="/tasks" element={<TaskListPage />} />
+          <Route path="/tasks/new" element={<TaskNewPage />} />
+          <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/me" element={<MePage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/tasks" replace />} />
       </Routes>
     </>
   )

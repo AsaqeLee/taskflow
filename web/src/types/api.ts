@@ -8,10 +8,12 @@ export type TaskStatus =
   | 'cancelled'
   | 'deleted'
 
+export type UserRole = 'owner' | 'human' | 'agent'
+
 export interface User {
   id: string
   name: string
-  role: string
+  role: UserRole
   active: boolean
   disabled_at?: string
   disabled_by?: string
@@ -72,6 +74,11 @@ export interface SessionResponse {
   expires_in_seconds: number
   refresh_expires_in_seconds: number
   token_type: string
+}
+
+export interface PasswordResetRequestResponse {
+  status: string
+  reset_token?: string
 }
 
 export interface ApiError {
