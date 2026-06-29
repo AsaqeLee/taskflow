@@ -251,3 +251,56 @@ func TestTaskHandler_List_FiltersTasksByParticipationUnlessOwner(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskHandler_List_AppliesFiltersAndPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := repository.NewMemoryTaskRepository()
+	recordRepo := repository.NewMemoryTaskRecordRepository()
+	auditRepo := repository.NewMemoryAuditLogRepository()
+	userRepo := repository.NewMemoryUserRepository()
+	testutil.SeedAccount(t, userRepo, "u_owner_001", "Owner", "owner", "")
+	testutil.SeedAccount(t, userRepo, "u_worker_001", "Worker", "human", "")
+	h := NewTaskHandler(service.NewTaskService(repo, recordRepo, auditRepo, userRepo))
+	now := time.Now().UTC()
+
+	seed := []domaintask.Task{
+		domaintask.Restore("task_query_001", "Alpha first", "", domaintask.StatusAssigned, "u_owner_001", "u_worker_001", now, now, nil, ""),
+		domaintask.Restore("task_query_002", "Alpha second", "", domaintask.StatusAssigned, "u_owner_001", "u_worker_001", now.Add(time.Minute), now.Add(time.Minute), nil, ""),
+		domaintask.Restore("task_query_003", "Beta third", "", domaintask.StatusOpen, "u_owner_001", "", now.Add(2*time.Minute), now.Add(2*time.Minute), nil, ""),
+	}
+	for _, task := range seed {
+		if _, err := repo.Create(context.Background(), task); err != nil {
+			t.Fatalf("seed task %s: %v", task.ID(), err)
+		}
+	}
+
+	r := gin.New()
+	r.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	r.GET("/tasks", h.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks?q=alpha&status=assigned&page=2&page_size=1", nil)
+	req.Header.Set("X-User-ID", "u_owner_001")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected owner 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Tasks    []model.Task `json:"tasks"`
+		Total    int          `json:"total"`
+		Page     int          `json:"page"`
+		PageSize int          `json:"page_size"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Total != 2 || resp.Page != 2 || resp.PageSize != 1 {
+		t.Fatalf("unexpected pagination metadata: %+v", resp)
+	}
+	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != "task_query_002" {
+		t.Fatalf("unexpected tasks: %+v", resp.Tasks)
+	}
+}

@@ -55,6 +55,20 @@ type TaskService struct {
 	dbClient     *database.Client
 }
 
+type TaskListQuery struct {
+	Query    string
+	Status   string
+	Page     int
+	PageSize int
+}
+
+type TaskListResult struct {
+	Tasks    []model.Task
+	Total    int
+	Page     int
+	PageSize int
+}
+
 const (
 	taskActionAssign     = "assign"
 	taskActionStart      = "start"
@@ -65,6 +79,9 @@ const (
 	taskActionCancel     = "cancel"
 	taskActionReactivate = "reactivate"
 	taskActionDelete     = "delete"
+	defaultTaskListPage  = 1
+	defaultTaskPageSize  = 20
+	maxTaskPageSize      = 100
 )
 
 func NewTaskService(
@@ -159,20 +176,51 @@ func (s *TaskService) ListTasks(ctx context.Context) ([]model.Task, error) {
 	return model.TasksFromDomain(tasks), nil
 }
 
-func (s *TaskService) ListTasksForUser(ctx context.Context, currentUser model.User) ([]model.Task, error) {
-	if isOwner(currentUser) {
-		tasks, err := s.repo.List(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return model.TasksFromDomain(tasks), nil
+func (s *TaskService) QueryTasksForUser(ctx context.Context, currentUser model.User, query TaskListQuery) (TaskListResult, error) {
+	normalized, err := normalizeTaskListQuery(query)
+	if err != nil {
+		return TaskListResult{}, err
 	}
 
-	tasks, err := s.repo.ListVisibleToUser(ctx, currentUser.ID)
+	repoQuery := ports.TaskListQuery{
+		Query:  normalized.Query,
+		Status: normalized.Status,
+		Limit:  normalized.PageSize,
+		Offset: (normalized.Page - 1) * normalized.PageSize,
+	}
+
+	var result ports.TaskListResult
+	if isOwner(currentUser) {
+		result, err = s.repo.Search(ctx, repoQuery)
+		if err != nil {
+			return TaskListResult{}, err
+		}
+		return TaskListResult{
+			Tasks:    model.TasksFromDomain(result.Tasks),
+			Total:    result.Total,
+			Page:     normalized.Page,
+			PageSize: normalized.PageSize,
+		}, nil
+	}
+
+	result, err = s.repo.SearchVisibleToUser(ctx, currentUser.ID, repoQuery)
+	if err != nil {
+		return TaskListResult{}, err
+	}
+	return TaskListResult{
+		Tasks:    taskViewsForUser(result.Tasks, currentUser),
+		Total:    result.Total,
+		Page:     normalized.Page,
+		PageSize: normalized.PageSize,
+	}, nil
+}
+
+func (s *TaskService) ListTasksForUser(ctx context.Context, currentUser model.User) ([]model.Task, error) {
+	result, err := s.QueryTasksForUser(ctx, currentUser, TaskListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	return taskViewsForUser(tasks, currentUser), nil
+	return result.Tasks, nil
 }
 
 func (s *TaskService) ListTaskRecords(ctx context.Context, taskID string) ([]model.TaskRecord, error) {
@@ -541,6 +589,32 @@ func taskViewsForUser(tasks []domaintask.Task, currentUser model.User) []model.T
 		result[i] = taskViewForUser(task, currentUser)
 	}
 	return result
+}
+
+func normalizeTaskListQuery(query TaskListQuery) (TaskListQuery, error) {
+	normalized := TaskListQuery{
+		Query:    strings.TrimSpace(query.Query),
+		Status:   strings.TrimSpace(query.Status),
+		Page:     query.Page,
+		PageSize: query.PageSize,
+	}
+
+	if normalized.Status != "" {
+		if _, err := domaintask.ParseStatus(normalized.Status); err != nil {
+			return TaskListQuery{}, err
+		}
+	}
+	if normalized.Page <= 0 {
+		normalized.Page = defaultTaskListPage
+	}
+	if normalized.PageSize <= 0 {
+		normalized.PageSize = defaultTaskPageSize
+	}
+	if normalized.PageSize > maxTaskPageSize {
+		normalized.PageSize = maxTaskPageSize
+	}
+
+	return normalized, nil
 }
 
 func availableActionsForUser(task domaintask.Task, currentUser model.User) []string {

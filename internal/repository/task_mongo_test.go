@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/domain/ports"
 	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -209,6 +210,38 @@ func TestMongoTaskRepository_UpdateReturnsNotFound(t *testing.T) {
 	))
 	if err != ErrTaskNotFound {
 		t.Fatalf("expected ErrTaskNotFound, got %v", err)
+	}
+}
+
+func TestMongoTaskRepository_SearchAppliesFiltersAndPagination(t *testing.T) {
+	repo := newTestMongoTaskRepository(t)
+	now := time.Now().UTC()
+
+	seed := []domaintask.Task{
+		domaintask.Restore("task_alpha_001", "Alpha first", "", domaintask.StatusAssigned, "u_owner_001", "u_worker_001", now, now, nil, ""),
+		domaintask.Restore("task_alpha_002", "Beta", "alpha detail", domaintask.StatusAssigned, "u_owner_001", "u_worker_001", now.Add(time.Minute), now.Add(time.Minute), nil, ""),
+		domaintask.Restore("task_other_001", "Gamma", "", domaintask.StatusOpen, "u_owner_001", "", now.Add(2*time.Minute), now.Add(2*time.Minute), nil, ""),
+	}
+	for _, task := range seed {
+		if _, err := repo.Create(context.Background(), task); err != nil {
+			t.Fatalf("seed task %s: %v", task.ID(), err)
+		}
+	}
+
+	result, err := repo.Search(context.Background(), ports.TaskListQuery{
+		Query:  "alpha",
+		Status: domaintask.StatusAssigned.String(),
+		Limit:  1,
+		Offset: 1,
+	})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("expected total 2, got %d", result.Total)
+	}
+	if len(result.Tasks) != 1 || result.Tasks[0].ID() != "task_alpha_002" {
+		t.Fatalf("unexpected search result: %+v", result.Tasks)
 	}
 }
 

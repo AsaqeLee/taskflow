@@ -2,12 +2,14 @@ package repository
 
 import (
 	"context"
-	"sort"
+	"regexp"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/domain/ports"
 	domaintask "github.com/AsaqeLee/taskflow/internal/domain/task"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const taskCollectionName = "tasks"
@@ -77,82 +79,71 @@ func (r *MongoTaskRepository) GetByIDIncludingDeleted(ctx context.Context, id st
 }
 
 func (r *MongoTaskRepository) List(ctx context.Context) ([]domaintask.Task, error) {
-	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
-	defer cancel()
-
-	cursor, err := r.collection.Find(ctx, bson.M{"$or": []bson.M{{"deleted_at": bson.M{"$exists": false}}, {"deleted_at": nil}}})
+	result, err := r.Search(ctx, ports.TaskListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
-
-	var docs []taskDocument
-	if err := cursor.All(ctx, &docs); err != nil {
-		return nil, err
-	}
-
-	result := make([]domaintask.Task, 0, len(docs))
-	for _, doc := range docs {
-		task, err := documentToTask(doc)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, task)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt().Before(result[j].CreatedAt())
-	})
-
-	return result, nil
+	return result.Tasks, nil
 }
 
 func (r *MongoTaskRepository) ListVisibleToUser(ctx context.Context, userID string) ([]domaintask.Task, error) {
+	result, err := r.SearchVisibleToUser(ctx, userID, ports.TaskListQuery{})
+	if err != nil {
+		return nil, err
+	}
+	return result.Tasks, nil
+}
+
+func (r *MongoTaskRepository) Search(ctx context.Context, query ports.TaskListQuery) (ports.TaskListResult, error) {
+	return r.search(ctx, "", query)
+}
+
+func (r *MongoTaskRepository) SearchVisibleToUser(ctx context.Context, userID string, query ports.TaskListQuery) (ports.TaskListResult, error) {
+	return r.search(ctx, userID, query)
+}
+
+func (r *MongoTaskRepository) search(ctx context.Context, userID string, query ports.TaskListQuery) (ports.TaskListResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskOperationTimeout)
 	defer cancel()
 
-	filter := bson.M{
-		"$and": []bson.M{
-			{
-				"$or": []bson.M{
-					{"deleted_at": bson.M{"$exists": false}},
-					{"deleted_at": nil},
-				},
-			},
-			{
-				"$or": []bson.M{
-					{"creator_id": userID},
-					{"assignee_id": userID},
-				},
-			},
-		},
+	filter := buildTaskSearchFilter(userID, query)
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return ports.TaskListResult{}, err
 	}
 
-	cursor, err := r.collection.Find(ctx, filter)
+	findOptions := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+	if query.Offset > 0 {
+		findOptions.SetSkip(int64(query.Offset))
+	}
+	if query.Limit > 0 {
+		findOptions.SetLimit(int64(query.Limit))
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
 	if err != nil {
-		return nil, err
+		return ports.TaskListResult{}, err
 	}
 	defer cursor.Close(ctx)
 
 	var docs []taskDocument
 	if err := cursor.All(ctx, &docs); err != nil {
-		return nil, err
+		return ports.TaskListResult{}, err
 	}
 
 	result := make([]domaintask.Task, 0, len(docs))
 	for _, doc := range docs {
 		task, err := documentToTask(doc)
 		if err != nil {
-			return nil, err
+			return ports.TaskListResult{}, err
 		}
 		result = append(result, task)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt().Before(result[j].CreatedAt())
-	})
-
-	return result, nil
+	return ports.TaskListResult{
+		Tasks: result,
+		Total: int(total),
+	}, nil
 }
 
 func (r *MongoTaskRepository) Update(ctx context.Context, task domaintask.Task) (domaintask.Task, error) {
@@ -195,6 +186,41 @@ func taskToDocument(task domaintask.Task) taskDocument {
 		DeletedAt:   task.DeletedAt(),
 		DeletedBy:   task.DeletedBy(),
 	}
+}
+
+func buildTaskSearchFilter(userID string, query ports.TaskListQuery) bson.M {
+	filters := []bson.M{{
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
+	}}
+
+	if userID != "" {
+		filters = append(filters, bson.M{
+			"$or": []bson.M{
+				{"creator_id": userID},
+				{"assignee_id": userID},
+			},
+		})
+	}
+	if query.Status != "" {
+		filters = append(filters, bson.M{"status": query.Status})
+	}
+	if query.Query != "" {
+		pattern := regexp.QuoteMeta(query.Query)
+		filters = append(filters, bson.M{
+			"$or": []bson.M{
+				{"title": bson.M{"$regex": pattern, "$options": "i"}},
+				{"description": bson.M{"$regex": pattern, "$options": "i"}},
+			},
+		})
+	}
+
+	if len(filters) == 1 {
+		return filters[0]
+	}
+	return bson.M{"$and": filters}
 }
 
 func documentToTask(doc taskDocument) (domaintask.Task, error) {

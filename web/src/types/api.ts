@@ -35,6 +35,20 @@ export interface Task {
   deleted_by?: string
 }
 
+export interface TaskListQuery {
+  q?: string
+  status?: TaskStatus
+  page?: number
+  page_size?: number
+}
+
+export interface TaskListResponse {
+  tasks: Task[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface TaskRecord {
   id: string
   task_id: string

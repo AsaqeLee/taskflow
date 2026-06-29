@@ -10,6 +10,8 @@ import type {
   PasswordResetRequestResponse,
   SessionResponse,
   Task,
+  TaskListQuery,
+  TaskListResponse,
   TaskRecordInput,
   TaskRecord,
   User,
@@ -196,9 +198,24 @@ export async function revokeUserSessions(id: string): Promise<void> {
   })
 }
 
-export async function fetchTasks(): Promise<Task[]> {
-  const body = await request<{ tasks: Task[] }>('/tasks')
-  return body.tasks
+export async function fetchTasks(query: TaskListQuery = {}): Promise<TaskListResponse> {
+  const params = new URLSearchParams()
+  const search = query.q?.trim()
+  if (search) {
+    params.set('q', search)
+  }
+  if (query.status) {
+    params.set('status', query.status)
+  }
+  if (query.page && query.page > 0) {
+    params.set('page', String(query.page))
+  }
+  if (query.page_size && query.page_size > 0) {
+    params.set('page_size', String(query.page_size))
+  }
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : ''
+  return request<TaskListResponse>(`/tasks${suffix}`)
 }
 
 export async function fetchTask(id: string): Promise<Task> {

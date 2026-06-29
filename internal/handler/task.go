@@ -29,6 +29,13 @@ type assignTaskRequest struct {
 	AssigneeID string `json:"assignee_id"`
 }
 
+type taskListQueryRequest struct {
+	Query    string `form:"q"`
+	Status   string `form:"status"`
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
+}
+
 type taskRecordRequest struct {
 	Content  string            `json:"content"`
 	Metadata map[string]string `json:"metadata"`
@@ -77,19 +84,39 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 }
 
 func (h *TaskHandler) List(c *gin.Context) {
+	var req taskListQueryRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if req.Page < 0 || req.PageSize < 0 {
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", "page and page_size must be zero or positive integers")
+		return
+	}
+
 	currentUser, ok := middleware.CurrentUser(c)
 	if !ok {
 		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
 		return
 	}
 
-	tasks, err := h.service.ListTasksForUser(c.Request.Context(), currentUser)
+	result, err := h.service.QueryTasksForUser(c.Request.Context(), currentUser, service.TaskListQuery{
+		Query:    req.Query,
+		Status:   req.Status,
+		Page:     req.Page,
+		PageSize: req.PageSize,
+	})
 	if err != nil {
 		h.writeServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+	c.JSON(http.StatusOK, gin.H{
+		"tasks":     result.Tasks,
+		"total":     result.Total,
+		"page":      result.Page,
+		"page_size": result.PageSize,
+	})
 }
 
 func (h *TaskHandler) ListRecords(c *gin.Context) {
@@ -333,6 +360,7 @@ func (h *TaskHandler) writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrTooShortTaskTitle),
 		errors.Is(err, service.ErrEmptyAssigneeID),
 		errors.Is(err, service.ErrEmptyTaskRecordContent),
+		errors.Is(err, service.ErrInvalidTaskStatus),
 		errors.Is(err, service.ErrInvalidTaskStatusForAssign),
 		errors.Is(err, service.ErrInvalidTaskStatusForStart),
 		errors.Is(err, service.ErrInvalidTaskStatusForSubmit),
