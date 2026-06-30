@@ -571,6 +571,126 @@ func TestIdentityHandler_OwnerOnlyRegister(t *testing.T) {
 	}
 }
 
+func TestIdentityHandler_APIKeyLifecycleAndAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	identityService := service.NewIdentityService(userRepo, identityRepo, false)
+	h := NewIdentityHandler(
+		identityService,
+		"test_secret",
+		time.Hour,
+		24*time.Hour,
+		time.Hour,
+		middleware.NewMemoryRateLimiter(10, 5*time.Minute),
+		middleware.NewMemoryRateLimiter(10, 15*time.Minute),
+		observability.NewMetrics(),
+		nil,
+		false,
+		false,
+	)
+
+	testutil.SeedAccount(t, userRepo, "u_owner_api", "Owner API", "owner", "owner_api_token")
+	testutil.SeedAccount(t, userRepo, "u_agent_api", "Hermes Agent", "agent", "")
+
+	r := gin.New()
+	authenticated := r.Group("/")
+	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true, identityRepo))
+	authenticated.GET("/me", h.Me)
+	authenticated.POST("/users/:id/api-keys", h.CreateAPIKey)
+	authenticated.GET("/users/:id/api-keys", h.ListAPIKeys)
+	authenticated.POST("/users/:id/api-keys/:keyID/revoke", h.RevokeAPIKey)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/users/u_agent_api/api-keys", strings.NewReader(`{"name":"Hermes Prod"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer owner_api_token")
+	createResp := httptest.NewRecorder()
+	r.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected create api key 201, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+
+	var created struct {
+		APIKey struct {
+			ID string `json:"id"`
+		} `json:"api_key"`
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create api key response: %v", err)
+	}
+	if created.APIKey.ID == "" {
+		t.Fatalf("expected api key id in response")
+	}
+	if created.Key == "" {
+		t.Fatalf("expected raw api key in response")
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+created.Key)
+	meResp := httptest.NewRecorder()
+	r.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected api key auth 200, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+
+	var meBody struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(meResp.Body.Bytes(), &meBody); err != nil {
+		t.Fatalf("decode me response: %v", err)
+	}
+	if meBody.User.ID != "u_agent_api" {
+		t.Fatalf("expected api key to authenticate u_agent_api, got %q", meBody.User.ID)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/users/u_agent_api/api-keys", nil)
+	listReq.Header.Set("Authorization", "Bearer owner_api_token")
+	listResp := httptest.NewRecorder()
+	r.ServeHTTP(listResp, listReq)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected list api keys 200, got %d body=%s", listResp.Code, listResp.Body.String())
+	}
+
+	var listed struct {
+		APIKeys []struct {
+			ID         string     `json:"id"`
+			LastUsedAt *time.Time `json:"last_used_at"`
+		} `json:"api_keys"`
+	}
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list api keys response: %v", err)
+	}
+	if len(listed.APIKeys) != 1 {
+		t.Fatalf("expected 1 api key, got %d", len(listed.APIKeys))
+	}
+	if listed.APIKeys[0].ID != created.APIKey.ID {
+		t.Fatalf("expected listed api key id %q, got %q", created.APIKey.ID, listed.APIKeys[0].ID)
+	}
+	if listed.APIKeys[0].LastUsedAt == nil {
+		t.Fatalf("expected api key last_used_at to be updated after authenticated request")
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodPost, "/users/u_agent_api/api-keys/"+created.APIKey.ID+"/revoke", nil)
+	revokeReq.Header.Set("Authorization", "Bearer owner_api_token")
+	revokeResp := httptest.NewRecorder()
+	r.ServeHTTP(revokeResp, revokeReq)
+	if revokeResp.Code != http.StatusOK {
+		t.Fatalf("expected revoke api key 200, got %d body=%s", revokeResp.Code, revokeResp.Body.String())
+	}
+
+	reuseReq := httptest.NewRequest(http.MethodGet, "/me", nil)
+	reuseReq.Header.Set("Authorization", "Bearer "+created.Key)
+	reuseResp := httptest.NewRecorder()
+	r.ServeHTTP(reuseResp, reuseReq)
+	if reuseResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked api key 401, got %d body=%s", reuseResp.Code, reuseResp.Body.String())
+	}
+}
+
 func mustLoginToken(t *testing.T, identityService *service.IdentityService, id, password string) string {
 	t.Helper()
 	user, err := identityService.Authenticate(context.Background(), id, password)

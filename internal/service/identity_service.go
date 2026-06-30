@@ -20,10 +20,14 @@ var (
 	ErrRefreshTokenReused      = errors.New("refresh token reuse detected")
 	ErrInvalidPasswordResetTok = errors.New("password reset token is invalid or expired")
 	ErrForbiddenSessionRevoke  = errors.New("current user cannot revoke this account's sessions")
+	ErrForbiddenAPIKeyManage   = errors.New("current user cannot manage api keys")
 	ErrUserNotFound            = ports.ErrUserNotFound
 	ErrUserAlreadyExists       = ports.ErrUserAlreadyExists
+	ErrAPIKeyNotFound          = ports.ErrAPIKeyNotFound
 	ErrForbiddenUserCreate     = domainuser.ErrForbiddenUserCreate
 )
+
+const apiKeyTokenPrefix = "tfk_"
 
 type IdentityService struct {
 	users        ports.UserRepository
@@ -42,6 +46,7 @@ func NewIdentityService(
 	if len(dbClient) > 0 {
 		db = dbClient[0]
 	}
+
 	return &IdentityService{
 		users:        users,
 		identityRepo: identityRepo,
@@ -88,17 +93,21 @@ func (s *IdentityService) Authenticate(ctx context.Context, id, password string)
 		}
 		return model.User{}, err
 	}
+
 	if err := s.EnsureActive(user); err != nil {
 		return model.User{}, err
 	}
+
 	if err := auth.ComparePassword(user.PasswordHash, password); err != nil {
 		return model.User{}, ErrInvalidCredentials
 	}
+
 	return user, nil
 }
 
 func (s *IdentityService) IssueRefreshToken(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	now := time.Now().UTC()
+
 	rawToken, err := auth.GenerateOpaqueToken()
 	if err != nil {
 		return "", err
@@ -113,6 +122,7 @@ func (s *IdentityService) IssueRefreshToken(ctx context.Context, userID string, 
 	if err := s.identityRepo.SaveRefreshToken(ctx, token); err != nil {
 		return "", err
 	}
+
 	return rawToken, nil
 }
 
@@ -142,6 +152,7 @@ func (s *IdentityService) RotateRefreshToken(ctx context.Context, rawRefreshToke
 		if accountErr != nil {
 			return ErrInvalidRefreshToken
 		}
+
 		user = model.UserFromAccount(account)
 		if activeErr := s.EnsureActive(user); activeErr != nil {
 			return activeErr
@@ -151,6 +162,7 @@ func (s *IdentityService) RotateRefreshToken(ctx context.Context, rawRefreshToke
 		if genErr != nil {
 			return genErr
 		}
+
 		newHash := auth.HashOpaqueToken(generated)
 		if revokeErr := s.identityRepo.RevokeRefreshToken(txCtx, current.TokenHash(), now, newHash); revokeErr != nil {
 			return revokeErr
@@ -158,6 +170,7 @@ func (s *IdentityService) RotateRefreshToken(ctx context.Context, rawRefreshToke
 		if saveErr := s.identityRepo.SaveRefreshToken(txCtx, domainidentity.IssueRefreshToken(user.ID, newHash, now, now.Add(ttl))); saveErr != nil {
 			return saveErr
 		}
+
 		newRawToken = generated
 		return nil
 	}
@@ -180,6 +193,7 @@ func (s *IdentityService) RotateRefreshToken(ctx context.Context, rawRefreshToke
 	if err != nil {
 		return model.User{}, "", err
 	}
+
 	return user, newRawToken, nil
 }
 
@@ -198,6 +212,7 @@ func (s *IdentityService) RequestPasswordReset(ctx context.Context, userID strin
 	if err != nil {
 		return "", err
 	}
+
 	token := domainidentity.IssuePasswordResetToken(
 		user.ID,
 		auth.HashOpaqueToken(rawToken),
@@ -207,6 +222,7 @@ func (s *IdentityService) RequestPasswordReset(ctx context.Context, userID strin
 	if err := s.identityRepo.SavePasswordResetToken(ctx, token); err != nil {
 		return "", err
 	}
+
 	return rawToken, nil
 }
 
@@ -219,10 +235,7 @@ func (s *IdentityService) ConfirmPasswordReset(ctx context.Context, userID, rawT
 
 	runOps := func(txCtx context.Context) error {
 		resetToken, findErr := s.identityRepo.FindPasswordResetToken(txCtx, tokenHash)
-		if findErr != nil ||
-			resetToken.UserID() != userID ||
-			resetToken.IsConsumed() ||
-			resetToken.IsExpired(now) {
+		if findErr != nil || resetToken.UserID() != userID || resetToken.IsConsumed() || resetToken.IsExpired(now) {
 			return ErrInvalidPasswordResetTok
 		}
 
@@ -238,19 +251,20 @@ func (s *IdentityService) ConfirmPasswordReset(ctx context.Context, userID, rawT
 			}
 			return updateErr
 		}
+
 		if _, consumeErr := s.identityRepo.ConsumePasswordResetToken(txCtx, tokenHash, now); consumeErr != nil {
 			if errors.Is(consumeErr, ports.ErrPasswordResetTokenNotFound) {
 				return ErrInvalidPasswordResetTok
 			}
 			return consumeErr
 		}
-
 		if revokeErr := s.identityRepo.RevokeUserRefreshTokens(txCtx, userID, now); revokeErr != nil {
 			return revokeErr
 		}
 		if deleteErr := s.identityRepo.DeletePasswordResetTokensByUser(txCtx, userID); deleteErr != nil {
 			return deleteErr
 		}
+
 		updated = model.UserFromAccount(updatedAccount)
 		return nil
 	}
@@ -260,10 +274,10 @@ func (s *IdentityService) ConfirmPasswordReset(ctx context.Context, userID, rawT
 	} else {
 		err = runOps(ctx)
 	}
-
 	if err != nil {
 		return model.User{}, err
 	}
+
 	return updated, nil
 }
 
@@ -281,6 +295,7 @@ func (s *IdentityService) DisableAccount(ctx context.Context, actor model.User, 
 		if findErr != nil {
 			return findErr
 		}
+
 		if authErr := domainuser.AuthorizeDisable(domainuser.NewActor(actor.ID), actorRole, target); authErr != nil {
 			return authErr
 		}
@@ -298,6 +313,7 @@ func (s *IdentityService) DisableAccount(ctx context.Context, actor model.User, 
 		if deleteErr := s.identityRepo.DeletePasswordResetTokensByUser(txCtx, targetUserID); deleteErr != nil {
 			return deleteErr
 		}
+
 		disabled = updated
 		return nil
 	}
@@ -322,10 +338,85 @@ func (s *IdentityService) RevokeSessions(ctx context.Context, actor model.User, 
 	if !actorRole.IsOwner() && actor.ID != targetUserID {
 		return ErrForbiddenSessionRevoke
 	}
+
 	if _, err := s.users.FindByID(ctx, targetUserID); err != nil {
 		return err
 	}
+
 	return s.identityRepo.RevokeUserRefreshTokens(ctx, targetUserID, time.Now().UTC())
+}
+
+func (s *IdentityService) CreateAPIKey(
+	ctx context.Context,
+	actor model.User,
+	targetUserID, name string,
+	expiresAt *time.Time,
+) (domainidentity.APIKey, string, error) {
+	if err := ensureOwner(actor); err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	targetUser, err := s.FindAccount(ctx, targetUserID)
+	if err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+	if err := s.EnsureActive(targetUser); err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	rawSecret, err := auth.GenerateOpaqueToken()
+	if err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	now := time.Now().UTC()
+	rawKey := apiKeyTokenPrefix + rawSecret
+	key, err := domainidentity.IssueAPIKey(
+		targetUser.ID,
+		name,
+		apiKeyPrefix(rawKey),
+		auth.HashOpaqueToken(rawKey),
+		now,
+		expiresAt,
+	)
+	if err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	if err := s.identityRepo.SaveAPIKey(ctx, key); err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	saved, err := s.identityRepo.FindAPIKey(ctx, key.KeyHash())
+	if err != nil {
+		return domainidentity.APIKey{}, "", err
+	}
+
+	return saved, rawKey, nil
+}
+
+func (s *IdentityService) ListAPIKeys(ctx context.Context, actor model.User, targetUserID string) ([]domainidentity.APIKey, error) {
+	if err := ensureOwner(actor); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.users.FindByID(ctx, targetUserID); err != nil {
+		return nil, err
+	}
+
+	return s.identityRepo.ListAPIKeysByUser(ctx, targetUserID)
+}
+
+func (s *IdentityService) RevokeAPIKey(ctx context.Context, actor model.User, targetUserID, keyID string) (domainidentity.APIKey, error) {
+	if err := ensureOwner(actor); err != nil {
+		return domainidentity.APIKey{}, err
+	}
+
+	if _, err := s.users.FindByID(ctx, targetUserID); err != nil {
+		return domainidentity.APIKey{}, err
+	}
+
+	return s.identityRepo.RevokeAPIKey(ctx, targetUserID, keyID, time.Now().UTC())
 }
 
 func (s *IdentityService) ListUsers(ctx context.Context, actor model.User, activeOnly bool) ([]model.User, error) {
@@ -339,6 +430,7 @@ func (s *IdentityService) ListUsers(ctx context.Context, actor model.User, activ
 		if err != nil {
 			return nil, err
 		}
+
 		users := make([]model.User, len(accounts))
 		for i, account := range accounts {
 			users[i] = model.UserFromAccount(account)
@@ -350,6 +442,7 @@ func (s *IdentityService) ListUsers(ctx context.Context, actor model.User, activ
 	if err != nil {
 		return nil, err
 	}
+
 	return []model.User{self}, nil
 }
 
@@ -358,6 +451,7 @@ func (s *IdentityService) FindAccount(ctx context.Context, id string) (model.Use
 	if err != nil {
 		return model.User{}, err
 	}
+
 	return model.UserFromAccount(account), nil
 }
 
@@ -366,6 +460,7 @@ func (s *IdentityService) FindAccountByToken(ctx context.Context, token string) 
 	if err != nil {
 		return model.User{}, err
 	}
+
 	return model.UserFromAccount(account), nil
 }
 
@@ -374,4 +469,22 @@ func (s *IdentityService) EnsureActive(account model.User) error {
 		return domainuser.ErrAccountDisabled
 	}
 	return nil
+}
+
+func ensureOwner(actor model.User) error {
+	role, err := domainuser.ParseRole(actor.Role)
+	if err != nil {
+		return err
+	}
+	if !role.IsOwner() {
+		return ErrForbiddenAPIKeyManage
+	}
+	return nil
+}
+
+func apiKeyPrefix(rawKey string) string {
+	if len(rawKey) <= 12 {
+		return rawKey
+	}
+	return rawKey[:12]
 }

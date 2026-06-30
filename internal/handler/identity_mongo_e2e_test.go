@@ -46,6 +46,7 @@ func TestIdentityHandler_MongoRefreshReuseResetAndSessionRevocation(t *testing.T
 	identityRepo := repository.NewMongoIdentityRepository(
 		db.Collection("refresh_tokens"),
 		db.Collection("password_reset_tokens"),
+		db.Collection("api_keys"),
 	)
 	metrics := observability.NewMetrics()
 	dbClient := &database.Client{Mongo: client, DBName: db.Name()}

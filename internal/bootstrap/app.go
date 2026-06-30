@@ -84,7 +84,7 @@ func NewApp(cfg config.Config) (*App, error) {
 
 	return &App{
 		config:          cfg,
-		engine:          router.New(systemHandler, taskHandler, identityHandler, userRepo, cfg, tracer, metrics, rateLimiter, idempotencyStore),
+		engine:          router.New(systemHandler, taskHandler, identityHandler, userRepo, identityRepo, cfg, tracer, metrics, rateLimiter, idempotencyStore),
 		database:        db,
 		metrics:         metrics,
 		tracingShutdown: tracingShutdown,
@@ -116,6 +116,7 @@ func newRepositories(ctx context.Context, cfg config.Config) (
 			repository.NewMongoIdentityRepository(
 				mongoDB.Collection("refresh_tokens"),
 				mongoDB.Collection("password_reset_tokens"),
+				mongoDB.Collection("api_keys"),
 			),
 			db, nil
 	}

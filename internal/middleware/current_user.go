@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
+	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/domain/ports"
@@ -28,7 +30,12 @@ func FixedTestUser() gin.HandlerFunc {
 	}
 }
 
-func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin.HandlerFunc {
+func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool, identityRepos ...ports.IdentityRepository) gin.HandlerFunc {
+	var identityRepo ports.IdentityRepository
+	if len(identityRepos) > 0 {
+		identityRepo = identityRepos[0]
+	}
+
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		if len(token) > 7 && token[:7] == "Bearer " {
@@ -37,12 +44,11 @@ func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin
 
 		var user model.User
 		var authenticated bool
+		var apiKeyID string
 
 		if token != "" {
-			// 1. Try to validate token as JWT
-			claims, errJwt := auth.ValidateToken(token, jwtSecret)
-			if errJwt == nil && claims != nil {
-				// JWT is valid, find the user by ID
+			claims, errJWT := auth.ValidateToken(token, jwtSecret)
+			if errJWT == nil && claims != nil {
 				account, err := userRepo.FindByID(c.Request.Context(), claims.UserID)
 				if err == nil {
 					user = model.UserFromAccount(account)
@@ -50,7 +56,25 @@ func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin
 				}
 			}
 
-			// 2. If JWT fails, and devMode is true, fall back to matching plain/legacy token
+			if !authenticated && identityRepo != nil {
+				key, err := identityRepo.FindAPIKey(c.Request.Context(), auth.HashOpaqueToken(token))
+				switch {
+				case err == nil:
+					now := time.Now().UTC()
+					if !key.IsRevoked() && !key.IsExpired(now) {
+						account, accountErr := userRepo.FindByID(c.Request.Context(), key.UserID())
+						if accountErr == nil {
+							user = model.UserFromAccount(account)
+							authenticated = true
+							apiKeyID = key.ID()
+						}
+					}
+				case !errors.Is(err, ports.ErrAPIKeyNotFound):
+					httpapi.WriteError(c, http.StatusInternalServerError, "api_key_lookup_failed", "failed to resolve api key")
+					return
+				}
+			}
+
 			if !authenticated && devMode {
 				account, err := userRepo.FindByToken(c.Request.Context(), token)
 				if err == nil {
@@ -60,7 +84,6 @@ func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin
 			}
 		}
 
-		// 3. If still not authenticated, and devMode is true, check X-User-ID header
 		if !authenticated && devMode {
 			userID := c.GetHeader("X-User-ID")
 			if userID != "" {
@@ -77,8 +100,11 @@ func UserAuth(userRepo ports.UserRepository, jwtSecret string, devMode bool) gin
 			return
 		}
 		if !user.Active {
-			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account is disabled")
+			httpapi.AbortError(c, http.StatusForbidden, "account_disabled", "account disabled")
 			return
+		}
+		if apiKeyID != "" && identityRepo != nil {
+			_ = identityRepo.TouchAPIKeyLastUsed(c.Request.Context(), apiKeyID, time.Now().UTC())
 		}
 
 		c.Set(currentUserKey, user)

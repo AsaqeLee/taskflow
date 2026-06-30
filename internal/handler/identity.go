@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	domainidentity "github.com/AsaqeLee/taskflow/internal/domain/identity"
 	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/httpapi"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
@@ -107,6 +108,22 @@ type passwordResetConfirmRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+type createAPIKeyRequest struct {
+	Name      string     `json:"name" binding:"required"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type apiKeyResource struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	Name       string     `json:"name"`
+	KeyPrefix  string     `json:"key_prefix"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+}
+
 const (
 	identityFlowRegister             = "register"
 	identityFlowLogin                = "login"
@@ -115,6 +132,9 @@ const (
 	identityFlowPasswordResetConfirm = "password_reset_confirm"
 	identityFlowDisableAccount       = "disable_account"
 	identityFlowRevokeSessions       = "revoke_sessions"
+	identityFlowCreateAPIKey         = "create_api_key"
+	identityFlowListAPIKeys          = "list_api_keys"
+	identityFlowRevokeAPIKey         = "revoke_api_key"
 )
 
 func (h *IdentityHandler) ListUsers(c *gin.Context) {
@@ -136,6 +156,148 @@ func (h *IdentityHandler) ListUsers(c *gin.Context) {
 		response[i] = sanitizeUser(user)
 	}
 	c.JSON(http.StatusOK, gin.H{"users": response})
+}
+
+func (h *IdentityHandler) CreateAPIKey(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		h.recordIdentityEvent(identityFlowCreateAPIKey, "current_user_missing")
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	targetUserID := c.Param("id")
+	if targetUserID == "" {
+		h.recordIdentityEvent(identityFlowCreateAPIKey, "invalid_user_id")
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_user_id", "user id required")
+		return
+	}
+
+	var req createAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.recordIdentityEvent(identityFlowCreateAPIKey, "invalid_request")
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	key, rawKey, err := h.identityService.CreateAPIKey(c.Request.Context(), currentUser, targetUserID, req.Name, req.ExpiresAt)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrForbiddenAPIKeyManage):
+			h.recordIdentityEvent(identityFlowCreateAPIKey, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can create api keys")
+		case errors.Is(err, service.ErrUserNotFound):
+			h.recordIdentityEvent(identityFlowCreateAPIKey, "user_not_found")
+			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
+		case errors.Is(err, domainuser.ErrAccountDisabled):
+			h.recordIdentityEvent(identityFlowCreateAPIKey, "account_disabled")
+			httpapi.WriteError(c, http.StatusBadRequest, "account_disabled", "target account is disabled")
+		case errors.Is(err, domainuser.ErrEmptyUserID),
+			errors.Is(err, domainidentity.ErrEmptyAPIKeyName),
+			errors.Is(err, domainidentity.ErrEmptyAPIKeyPrefix),
+			errors.Is(err, domainidentity.ErrEmptyAPIKeyHash):
+			h.recordIdentityEvent(identityFlowCreateAPIKey, "invalid_request")
+			httpapi.WriteError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		default:
+			h.recordIdentityEvent(identityFlowCreateAPIKey, "create_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "api_key_create_failed", "failed to create api key")
+		}
+		return
+	}
+
+	h.recordIdentityEvent(identityFlowCreateAPIKey, "success")
+	c.JSON(http.StatusCreated, gin.H{
+		"api_key": sanitizeAPIKey(key),
+		"key":     rawKey,
+	})
+}
+
+func (h *IdentityHandler) ListAPIKeys(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		h.recordIdentityEvent(identityFlowListAPIKeys, "current_user_missing")
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	targetUserID := c.Param("id")
+	if targetUserID == "" {
+		h.recordIdentityEvent(identityFlowListAPIKeys, "invalid_user_id")
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_user_id", "user id required")
+		return
+	}
+
+	keys, err := h.identityService.ListAPIKeys(c.Request.Context(), currentUser, targetUserID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrForbiddenAPIKeyManage):
+			h.recordIdentityEvent(identityFlowListAPIKeys, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can list api keys")
+		case errors.Is(err, service.ErrUserNotFound):
+			h.recordIdentityEvent(identityFlowListAPIKeys, "user_not_found")
+			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
+		default:
+			h.recordIdentityEvent(identityFlowListAPIKeys, "list_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "api_key_list_failed", "failed to list api keys")
+		}
+		return
+	}
+
+	response := make([]apiKeyResource, len(keys))
+	for i, key := range keys {
+		response[i] = sanitizeAPIKey(key)
+	}
+
+	h.recordIdentityEvent(identityFlowListAPIKeys, "success")
+	c.JSON(http.StatusOK, gin.H{"api_keys": response})
+}
+
+func (h *IdentityHandler) RevokeAPIKey(c *gin.Context) {
+	currentUser, ok := middleware.CurrentUser(c)
+	if !ok {
+		h.recordIdentityEvent(identityFlowRevokeAPIKey, "current_user_missing")
+		httpapi.WriteError(c, http.StatusInternalServerError, "current_user_missing", "current user not found in context")
+		return
+	}
+
+	targetUserID := c.Param("id")
+	if targetUserID == "" {
+		h.recordIdentityEvent(identityFlowRevokeAPIKey, "invalid_user_id")
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_user_id", "user id required")
+		return
+	}
+
+	keyID := c.Param("keyID")
+	if keyID == "" {
+		h.recordIdentityEvent(identityFlowRevokeAPIKey, "invalid_key_id")
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_key_id", "api key id required")
+		return
+	}
+
+	key, err := h.identityService.RevokeAPIKey(c.Request.Context(), currentUser, targetUserID, keyID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrForbiddenAPIKeyManage):
+			h.recordIdentityEvent(identityFlowRevokeAPIKey, "forbidden")
+			httpapi.AbortError(c, http.StatusForbidden, "forbidden", "only owners can revoke api keys")
+		case errors.Is(err, service.ErrUserNotFound):
+			h.recordIdentityEvent(identityFlowRevokeAPIKey, "user_not_found")
+			httpapi.WriteError(c, http.StatusNotFound, "user_not_found", "user not found")
+		case errors.Is(err, service.ErrAPIKeyNotFound):
+			h.recordIdentityEvent(identityFlowRevokeAPIKey, "api_key_not_found")
+			httpapi.WriteError(c, http.StatusNotFound, "api_key_not_found", "api key not found")
+		default:
+			h.recordIdentityEvent(identityFlowRevokeAPIKey, "revoke_failed")
+			httpapi.WriteError(c, http.StatusInternalServerError, "api_key_revoke_failed", "failed to revoke api key")
+		}
+		return
+	}
+
+	h.recordIdentityEvent(identityFlowRevokeAPIKey, "success")
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "revoked",
+		"api_key": sanitizeAPIKey(key),
+	})
 }
 
 func (h *IdentityHandler) Register(c *gin.Context) {
@@ -493,6 +655,19 @@ func (h *IdentityHandler) recordRateLimitDecision(scope, decision string) {
 		return
 	}
 	h.metrics.ObserveRateLimitDecision(scope, decision)
+}
+
+func sanitizeAPIKey(key domainidentity.APIKey) apiKeyResource {
+	return apiKeyResource{
+		ID:         key.ID(),
+		UserID:     key.UserID(),
+		Name:       key.Name(),
+		KeyPrefix:  key.KeyPrefix(),
+		CreatedAt:  key.CreatedAt(),
+		ExpiresAt:  key.ExpiresAt(),
+		LastUsedAt: key.LastUsedAt(),
+		RevokedAt:  key.RevokedAt(),
+	}
 }
 
 func sanitizeUser(user model.User) publicUser {

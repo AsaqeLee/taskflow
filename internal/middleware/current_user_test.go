@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AsaqeLee/taskflow/internal/auth"
+	domainidentity "github.com/AsaqeLee/taskflow/internal/domain/identity"
 	domainuser "github.com/AsaqeLee/taskflow/internal/domain/user"
 	"github.com/AsaqeLee/taskflow/internal/repository"
 	"github.com/AsaqeLee/taskflow/internal/testutil"
@@ -266,5 +267,69 @@ func TestUserAuthMiddleware_RejectsDisabledAccount(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected disabled account to be rejected with 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUserAuthMiddleware_APIKeyAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewMemoryUserRepository()
+	identityRepo := repository.NewMemoryIdentityRepository()
+	testutil.SeedAccount(t, userRepo, "u_api_001", "API User", "agent", "")
+
+	rawKey := "tfk_test_key_001"
+	now := time.Now().UTC()
+	key, err := domainidentity.IssueAPIKey(
+		"u_api_001",
+		"Hermes Prod",
+		rawKey[:12],
+		auth.HashOpaqueToken(rawKey),
+		now,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("IssueAPIKey returned error: %v", err)
+	}
+	if err := identityRepo.SaveAPIKey(context.Background(), key); err != nil {
+		t.Fatalf("SaveAPIKey returned error: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(UserAuth(userRepo, "test_secret", false, identityRepo))
+	r.GET("/test-auth", func(c *gin.Context) {
+		user, exists := CurrentUser(c)
+		if !exists {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "user missing"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"userID": user.ID})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test-auth", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	listed, err := identityRepo.ListAPIKeysByUser(context.Background(), "u_api_001")
+	if err != nil {
+		t.Fatalf("ListAPIKeysByUser returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].LastUsedAt() == nil {
+		t.Fatalf("expected api key last_used_at to be updated")
+	}
+
+	if _, err := identityRepo.RevokeAPIKey(context.Background(), "u_api_001", listed[0].ID(), time.Now().UTC()); err != nil {
+		t.Fatalf("RevokeAPIKey returned error: %v", err)
+	}
+
+	revokedReq := httptest.NewRequest(http.MethodGet, "/test-auth", nil)
+	revokedReq.Header.Set("Authorization", "Bearer "+rawKey)
+	revokedResp := httptest.NewRecorder()
+	r.ServeHTTP(revokedResp, revokedReq)
+	if revokedResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked api key 401, got %d body=%s", revokedResp.Code, revokedResp.Body.String())
 	}
 }

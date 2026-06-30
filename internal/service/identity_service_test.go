@@ -242,6 +242,101 @@ func TestIdentityService_ConfirmPasswordReset_ReturnsCleanupFailure(t *testing.T
 	}
 }
 
+func TestIdentityService_APIKeyLifecycle(t *testing.T) {
+	svc, userRepo, identityRepo := newTestIdentityService(t)
+
+	now := time.Now().UTC()
+	owner, err := userRepo.Create(context.Background(), domainuser.Restore(
+		"u_owner_api",
+		"Owner API",
+		domainuser.RoleOwner,
+		"",
+		"",
+		true,
+		nil,
+		"",
+		now,
+		now,
+	))
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	_, err = userRepo.Create(context.Background(), domainuser.Restore(
+		"u_agent_api",
+		"Hermes Agent",
+		domainuser.RoleAgent,
+		"",
+		"",
+		true,
+		nil,
+		"",
+		now,
+		now,
+	))
+	if err != nil {
+		t.Fatalf("create target user: %v", err)
+	}
+	human, err := userRepo.Create(context.Background(), domainuser.Restore(
+		"u_human_api",
+		"Human API",
+		domainuser.RoleHuman,
+		"",
+		"",
+		true,
+		nil,
+		"",
+		now,
+		now,
+	))
+	if err != nil {
+		t.Fatalf("create human: %v", err)
+	}
+
+	actor := model.UserFromAccount(owner)
+	key, rawKey, err := svc.CreateAPIKey(context.Background(), actor, "u_agent_api", "Hermes Prod", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+	if key.ID() == "" {
+		t.Fatalf("expected persisted api key id")
+	}
+	if rawKey == "" {
+		t.Fatalf("expected raw api key")
+	}
+
+	stored, err := identityRepo.FindAPIKey(context.Background(), auth.HashOpaqueToken(rawKey))
+	if err != nil {
+		t.Fatalf("FindAPIKey returned error: %v", err)
+	}
+	if stored.ID() != key.ID() {
+		t.Fatalf("expected stored key id %q, got %q", key.ID(), stored.ID())
+	}
+
+	listed, err := svc.ListAPIKeys(context.Background(), actor, "u_agent_api")
+	if err != nil {
+		t.Fatalf("ListAPIKeys returned error: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 api key, got %d", len(listed))
+	}
+	if listed[0].ID() != key.ID() {
+		t.Fatalf("expected listed key id %q, got %q", key.ID(), listed[0].ID())
+	}
+
+	revoked, err := svc.RevokeAPIKey(context.Background(), actor, "u_agent_api", key.ID())
+	if err != nil {
+		t.Fatalf("RevokeAPIKey returned error: %v", err)
+	}
+	if revoked.RevokedAt() == nil {
+		t.Fatalf("expected revoked api key timestamp")
+	}
+
+	_, _, err = svc.CreateAPIKey(context.Background(), model.UserFromAccount(human), "u_agent_api", "forbidden", nil)
+	if !errors.Is(err, ErrForbiddenAPIKeyManage) {
+		t.Fatalf("expected ErrForbiddenAPIKeyManage, got %v", err)
+	}
+}
+
 func TestIdentityService_RotateRefreshToken_ReuseRevokesActiveSessionsInMongoTransaction(t *testing.T) {
 	uri := os.Getenv("TASKFLOW_MONGO_TEST_URI")
 	if uri == "" {
@@ -264,6 +359,7 @@ func TestIdentityService_RotateRefreshToken_ReuseRevokesActiveSessionsInMongoTra
 		_ = client.Database(dbName).Collection("users").Drop(context.Background())
 		_ = client.Database(dbName).Collection("refresh_tokens").Drop(context.Background())
 		_ = client.Database(dbName).Collection("password_reset_tokens").Drop(context.Background())
+		_ = client.Database(dbName).Collection("api_keys").Drop(context.Background())
 		_ = client.Disconnect(context.Background())
 	}()
 
@@ -271,11 +367,13 @@ func TestIdentityService_RotateRefreshToken_ReuseRevokesActiveSessionsInMongoTra
 	_ = mongoDB.Collection("users").Drop(ctx)
 	_ = mongoDB.Collection("refresh_tokens").Drop(ctx)
 	_ = mongoDB.Collection("password_reset_tokens").Drop(ctx)
+	_ = mongoDB.Collection("api_keys").Drop(ctx)
 
 	userRepo := repository.NewMongoUserRepository(mongoDB.Collection("users"))
 	identityRepo := repository.NewMongoIdentityRepository(
 		mongoDB.Collection("refresh_tokens"),
 		mongoDB.Collection("password_reset_tokens"),
+		mongoDB.Collection("api_keys"),
 	)
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	svc := NewIdentityService(userRepo, identityRepo, false, dbClient)

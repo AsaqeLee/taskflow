@@ -52,6 +52,9 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		_ = client.Database(dbName).Collection("task_records").Drop(context.Background())
 		_ = client.Database(dbName).Collection("audit_logs").Drop(context.Background())
 		_ = client.Database(dbName).Collection("users").Drop(context.Background())
+		_ = client.Database(dbName).Collection("refresh_tokens").Drop(context.Background())
+		_ = client.Database(dbName).Collection("password_reset_tokens").Drop(context.Background())
+		_ = client.Database(dbName).Collection("api_keys").Drop(context.Background())
 		_ = client.Disconnect(context.Background())
 	}()
 
@@ -59,6 +62,9 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	_ = client.Database(dbName).Collection("task_records").Drop(ctx)
 	_ = client.Database(dbName).Collection("audit_logs").Drop(ctx)
 	_ = client.Database(dbName).Collection("users").Drop(ctx)
+	_ = client.Database(dbName).Collection("refresh_tokens").Drop(ctx)
+	_ = client.Database(dbName).Collection("password_reset_tokens").Drop(ctx)
+	_ = client.Database(dbName).Collection("api_keys").Drop(ctx)
 
 	mongoDB := client.Database(dbName)
 	taskRepo := repository.NewMongoTaskRepository(mongoDB.Collection("tasks"))
@@ -68,6 +74,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	identityRepo := repository.NewMongoIdentityRepository(
 		mongoDB.Collection("refresh_tokens"),
 		mongoDB.Collection("password_reset_tokens"),
+		mongoDB.Collection("api_keys"),
 	)
 
 	testutil.SeedAccount(t, userRepo, "u_test_001", "Test Creator", "owner", "token_creator")

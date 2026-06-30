@@ -16,4 +16,5 @@ var (
 	ErrUserAlreadyExists          = ports.ErrUserAlreadyExists
 	ErrRefreshTokenNotFound       = ports.ErrRefreshTokenNotFound
 	ErrPasswordResetTokenNotFound = ports.ErrPasswordResetTokenNotFound
+	ErrAPIKeyNotFound             = ports.ErrAPIKeyNotFound
 )

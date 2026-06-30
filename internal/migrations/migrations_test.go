@@ -25,10 +25,10 @@ func TestDefinitionsAreSortedAndUnique(t *testing.T) {
 			t.Fatalf("found migration with empty version")
 		}
 		if definition.Description == "" {
-			t.Fatalf("migration %s is missing description", definition.Version)
+			t.Fatalf("migration %s missing description", definition.Version)
 		}
 		if definition.Up == nil {
-			t.Fatalf("migration %s is missing Up function", definition.Version)
+			t.Fatalf("migration %s missing Up function", definition.Version)
 		}
 		if slices.Contains(versions, definition.Version) {
 			t.Fatalf("duplicate migration version %s", definition.Version)
@@ -80,13 +80,19 @@ func TestApplyAllAppliesMigrationsOnce(t *testing.T) {
 	}
 
 	if !collectionHasIndexKey(ctx, t, db.Collection("refresh_tokens"), "token_hash") {
-		t.Fatalf("expected refresh_tokens to have token_hash index")
+		t.Fatalf("expected refresh_tokens token_hash index")
 	}
 	if !collectionHasIndexKey(ctx, t, db.Collection("users"), "active") {
-		t.Fatalf("expected users to have active index")
+		t.Fatalf("expected users active index")
+	}
+	if !collectionHasIndexKey(ctx, t, db.Collection("api_keys"), "key_hash") {
+		t.Fatalf("expected api_keys key_hash index")
+	}
+	if !collectionHasIndexKey(ctx, t, db.Collection("api_keys"), "user_id") {
+		t.Fatalf("expected api_keys user_id index")
 	}
 	if !collectionHasIndexKey(ctx, t, db.Collection("runtime_idempotency_keys"), "expires_at") {
-		t.Fatalf("expected runtime_idempotency_keys to have expires_at index")
+		t.Fatalf("expected runtime_idempotency_keys expires_at index")
 	}
 }
 
@@ -105,16 +111,14 @@ func collectionHasIndexKey(ctx context.Context, t *testing.T, collection *mongo.
 			t.Fatalf("decode index doc for %s: %v", collection.Name(), err)
 		}
 
-		keyDoc, ok := doc["key"].(bson.M)
-		if ok {
+		if keyDoc, ok := doc["key"].(bson.M); ok {
 			if _, exists := keyDoc[key]; exists {
 				return true
 			}
 			continue
 		}
 
-		keyList, ok := doc["key"].(bson.D)
-		if ok {
+		if keyList, ok := doc["key"].(bson.D); ok {
 			for _, item := range keyList {
 				if item.Key == key {
 					return true
@@ -123,13 +127,13 @@ func collectionHasIndexKey(ctx context.Context, t *testing.T, collection *mongo.
 			continue
 		}
 
-		keyMap, ok := doc["key"].(map[string]any)
-		if ok {
+		if keyMap, ok := doc["key"].(map[string]any); ok {
 			if _, exists := keyMap[key]; exists {
 				return true
 			}
 		}
 	}
+
 	if err := cursor.Err(); err != nil {
 		t.Fatalf("iterate indexes for %s: %v", collection.Name(), err)
 	}

@@ -142,6 +142,33 @@ var Definitions = []Migration{
 			})
 		},
 	},
+	{
+		Version:     "2026063001",
+		Description: "add api key indexes",
+		Up: func(ctx context.Context, db *mongo.Database) error {
+			return createIndexes(ctx, db, map[string][]mongo.IndexModel{
+				"api_keys": {
+					{
+						Keys:    bson.D{{Key: "key_hash", Value: 1}},
+						Options: options.Index().SetUnique(true),
+					},
+					{
+						Keys: bson.D{
+							{Key: "user_id", Value: 1},
+							{Key: "created_at", Value: -1},
+						},
+					},
+					{
+						Keys: bson.D{
+							{Key: "revoked_at", Value: 1},
+							{Key: "expires_at", Value: 1},
+						},
+						Options: options.Index().SetSparse(true),
+					},
+				},
+			})
+		},
+	},
 }
 
 func ApplyAll(ctx context.Context, db *mongo.Database) error {
