@@ -21,6 +21,17 @@ export interface User {
   updated_at: string
 }
 
+export interface APIKey {
+  id: string
+  user_id: string
+  name: string
+  key_prefix: string
+  created_at: string
+  expires_at?: string
+  last_used_at?: string
+  revoked_at?: string
+}
+
 export interface Task {
   id: string
   title: string

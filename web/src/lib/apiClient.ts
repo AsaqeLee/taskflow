@@ -1,10 +1,7 @@
-import {
-  getAccessToken,
-  getRefreshToken,
-  saveSession,
-} from './auth'
+import { getAccessToken, getRefreshToken, saveSession } from './auth'
 import { notifySessionExpired } from './session'
 import type {
+  APIKey,
   ApiError,
   AuditLog,
   PasswordResetRequestResponse,
@@ -12,8 +9,8 @@ import type {
   Task,
   TaskListQuery,
   TaskListResponse,
-  TaskRecordInput,
   TaskRecord,
+  TaskRecordInput,
   User,
   UserRole,
 } from '../types/api'
@@ -49,7 +46,7 @@ async function parseError(response: Response): Promise<ApiClientError> {
       requestId = body.error.request_id
     }
   } catch {
-    // ignore parse errors
+    // Ignore parse errors and fall back to status text.
   }
 
   return new ApiClientError(response.status, code, message, requestId)
@@ -57,14 +54,15 @@ async function parseError(response: Response): Promise<ApiClientError> {
 
 async function refreshTokens(): Promise<boolean> {
   const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
+  if (!refreshToken) {
+    return false
+  }
 
   const response = await fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
   })
-
   if (!response.ok) {
     notifySessionExpired()
     return false
@@ -75,14 +73,32 @@ async function refreshTokens(): Promise<boolean> {
   return true
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-  retry = true,
-): Promise<T> {
+function requestMethod(init: RequestInit): string {
+  return (init.method ?? 'GET').toUpperCase()
+}
+
+function shouldAttachIdempotencyKey(method: string): boolean {
+  return method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE'
+}
+
+function newIdempotencyKey(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `tfw-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(init.headers)
+  const method = requestMethod(init)
+
   if (!headers.has('Content-Type') && init.body) {
     headers.set('Content-Type', 'application/json')
+  }
+
+  if (shouldAttachIdempotencyKey(method) && !headers.has('Idempotency-Key')) {
+    headers.set('Idempotency-Key', newIdempotencyKey())
   }
 
   const token = getAccessToken()
@@ -90,18 +106,19 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
-
+  const response = await fetch(`${API_BASE}${path}`, { ...init, method, headers })
   if (response.status === 401 && retry) {
     if (!refreshPromise) {
       refreshPromise = refreshTokens().finally(() => {
         refreshPromise = null
       })
     }
+
     const refreshed = await refreshPromise
     if (refreshed) {
       return request<T>(path, init, false)
     }
+
     notifySessionExpired()
     throw await parseError(response)
   }
@@ -123,7 +140,6 @@ export async function login(id: string, password: string): Promise<SessionRespon
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, password }),
   })
-
   if (!response.ok) {
     throw await parseError(response)
   }
@@ -133,31 +149,23 @@ export async function login(id: string, password: string): Promise<SessionRespon
   return session
 }
 
-export async function requestPasswordReset(
-  id: string,
-): Promise<PasswordResetRequestResponse> {
+export async function requestPasswordReset(id: string): Promise<PasswordResetRequestResponse> {
   return request<PasswordResetRequestResponse>('/auth/password-reset/request', {
     method: 'POST',
     body: JSON.stringify({ id }),
   })
 }
 
-export async function confirmPasswordReset(
-  id: string,
-  token: string,
-  newPassword: string,
-): Promise<User> {
-  const body = await request<{ status: string; user: User }>(
-    '/auth/password-reset/confirm',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        id,
-        token,
-        new_password: newPassword,
-      }),
-    },
-  )
+export async function confirmPasswordReset(id: string, token: string, newPassword: string): Promise<User> {
+  const body = await request<{ status: string; user: User }>('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: JSON.stringify({
+      id,
+      token,
+      new_password: newPassword,
+    }),
+  })
+
   return body.user
 }
 
@@ -172,12 +180,7 @@ export async function fetchUsers(activeOnly = true): Promise<User[]> {
   return body.users
 }
 
-export async function createUser(
-  id: string,
-  name: string,
-  role: UserRole,
-  password: string,
-): Promise<User> {
+export async function createUser(id: string, name: string, role: UserRole, password: string): Promise<User> {
   const body = await request<{ user: User }>('/users', {
     method: 'POST',
     body: JSON.stringify({ id, name, role, password }),
@@ -196,6 +199,33 @@ export async function revokeUserSessions(id: string): Promise<void> {
   await request<{ status: string }>(`/users/${id}/revoke-sessions`, {
     method: 'POST',
   })
+}
+
+export async function fetchUserAPIKeys(userID: string): Promise<APIKey[]> {
+  const body = await request<{ api_keys: APIKey[] }>(`/users/${userID}/api-keys`)
+  return body.api_keys
+}
+
+export async function createUserAPIKey(userID: string, name: string, expiresAt?: string): Promise<{ apiKey: APIKey; key: string }> {
+  const body = await request<{ api_key: APIKey; key: string }>(`/users/${userID}/api-keys`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      expires_at: expiresAt || undefined,
+    }),
+  })
+
+  return {
+    apiKey: body.api_key,
+    key: body.key,
+  }
+}
+
+export async function revokeUserAPIKey(userID: string, keyID: string): Promise<APIKey> {
+  const body = await request<{ status: string; api_key: APIKey }>(`/users/${userID}/api-keys/${keyID}/revoke`, {
+    method: 'POST',
+  })
+  return body.api_key
 }
 
 export async function fetchTasks(query: TaskListQuery = {}): Promise<TaskListResponse> {
@@ -231,11 +261,7 @@ export async function createTask(title: string, description: string): Promise<Ta
   return body.task
 }
 
-export async function updateTask(
-  id: string,
-  title: string,
-  description: string,
-): Promise<Task> {
+export async function updateTask(id: string, title: string, description: string): Promise<Task> {
   const body = await request<{ task: Task }>(`/tasks/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title, description }),
@@ -252,7 +278,9 @@ export async function assignTask(id: string, assigneeId: string): Promise<Task> 
 }
 
 export async function startTask(id: string): Promise<Task> {
-  const body = await request<{ task: Task }>(`/tasks/${id}/start`, { method: 'POST' })
+  const body = await request<{ task: Task }>(`/tasks/${id}/start`, {
+    method: 'POST',
+  })
   return body.task
 }
 
@@ -281,7 +309,9 @@ export async function approveTask(id: string, input: TaskRecordInput): Promise<T
 }
 
 export async function closeTask(id: string): Promise<Task> {
-  const body = await request<{ task: Task }>(`/tasks/${id}/close`, { method: 'POST' })
+  const body = await request<{ task: Task }>(`/tasks/${id}/close`, {
+    method: 'POST',
+  })
   return body.task
 }
 
@@ -302,7 +332,9 @@ export async function reactivateTask(id: string, content: string): Promise<Task>
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  await request<void>(`/tasks/${id}`, { method: 'DELETE' })
+  await request<void>(`/tasks/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function fetchTaskRecords(id: string): Promise<TaskRecord[]> {
