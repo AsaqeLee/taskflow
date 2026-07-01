@@ -26,6 +26,7 @@ if [[ -n "$ENV_FILE" ]]; then
   export COMPOSE_ENV_FILE="$ENV_FILE"
   export ENV_FILE
 fi
+require_container_stack || fail "docker / docker compose unavailable"
 load_compose_context
 
 OWNER_ID="${OWNER_ID:-u_owner}"

@@ -19,6 +19,7 @@ fail() {
   exit 1
 }
 
+require_container_stack || fail "docker / docker compose unavailable"
 prometheus_http() {
   compose_cmd --profile monitoring exec -T prometheus \
     wget -qO- "http://127.0.0.1:9090$1"

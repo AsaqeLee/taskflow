@@ -31,8 +31,8 @@ prepare_release_gate_env() {
   local source_env="$1"
   local bootstrap_source=""
   local release_gate_users_rel=""
-  release_gate_env_file="$(mktemp)"
 
+  release_gate_env_file="$(mktemp)"
   mkdir -p "$ROOT/tmp"
 
   set -a
@@ -63,6 +63,10 @@ if [[ -n "$ENV_FILE" ]]; then
   export ENV_FILE="$release_gate_env_file"
 fi
 
+require_container_stack || {
+  log "docker preflight failed"
+  exit 1
+}
 load_compose_context
 
 log "resetting compose state"
@@ -80,19 +84,22 @@ SKIP_GO_TEST=true bash scripts/security_audit.sh
 log "running compose smoke"
 bash scripts/compose_smoke.sh
 
+log "running warm-stack intranet acceptance"
+STACK_COMPOSE_UP_MODE=skip bash scripts/intranet_acceptance.sh
+
 log "running backup integrity smoke"
 backup_tmpdir="$(mktemp -d)"
 BACKUP_TOOL=compose BACKUP_DIR="$backup_tmpdir" bash scripts/backup_mongo.sh
 BACKUP_DIR="$backup_tmpdir" bash scripts/backup_healthcheck.sh
 
-log "running monitoring profile smoke"
-bash scripts/monitoring_smoke.sh "${ENV_FILE:-}"
+log "running same-origin nginx smoke"
+env STACK_COMPOSE_UP_MODE=skip bash scripts/nginx_smoke.sh "${ENV_FILE:-}"
 
 log "running browser responsive acceptance"
 bash scripts/web_acceptance_smoke.sh
 
-log "running nginx same-origin smoke"
-bash scripts/nginx_smoke.sh "${ENV_FILE:-}"
+log "running monitoring profile smoke"
+bash scripts/monitoring_smoke.sh "${ENV_FILE:-}"
 
 compose_down
 

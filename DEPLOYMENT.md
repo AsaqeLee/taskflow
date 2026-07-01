@@ -2,38 +2,29 @@
 
 ## Scope
 
-This repository already supports a practical production-style baseline for internal rollout:
+The repository supports a practical intranet deployment baseline:
 
 - JWT auth outside dev mode
-- refresh-token rotation, password reset, account disable, and session revoke
-- request IDs, trace IDs, structured JSON logs, and optional OTLP tracing
+- refresh-token rotation, password reset, account disable, session revoke
+- request IDs, trace IDs, structured logs, optional OTLP tracing
 - `/health`, `/livez`, `/readyz`, `/metrics`
 - Mongo-backed rate limiting and idempotency
-- startup or CLI-driven versioned Mongo migrations
+- versioned Mongo migrations
 - soft delete with audit retention
-- an optional same-origin packaged web entry through Docker Compose
+- optional same-origin packaged web entry through Docker Compose
 
-Several write paths use Mongo transactions:
-
-- task create, transition, and soft delete
-- refresh-token rotation
-- password-reset confirmation
-- account disable and session revoke side effects
-
-Because of that, production Mongo must be a replica set member or behind `mongos`. A standalone Mongo server is not enough.
+Several write paths use Mongo transactions, including task transitions, refresh-token rotation, password-reset confirmation, and account/session side effects. Production Mongo must therefore be a replica set member or sit behind `mongos`; standalone Mongo is not sufficient.
 
 ## Recommended deployment modes
 
 ### Local compose baseline
-
-Use this when you want the backend stack, Mongo, bootstrap users, and smoke coverage on one machine:
 
 ```bash
 docker compose up -d --build
 bash scripts/compose_smoke.sh
 ```
 
-If you also want the packaged same-origin web entry:
+For the packaged same-origin web entry:
 
 ```bash
 docker compose --profile full up -d --build web
@@ -42,12 +33,11 @@ bash scripts/nginx_smoke.sh
 
 ### Intranet or pilot deployment
 
-Use a real `.env` file, real bootstrap users, and strict production validation:
+Use a real `.env`, real bootstrap users, and strict production validation:
 
 ```bash
 cp .env.intranet.example .env
 bash scripts/validate_production_env.sh .env
-docker compose up -d --build
 ```
 
 For a gitignored pilot bundle with generated secrets and initial passwords:
@@ -55,7 +45,6 @@ For a gitignored pilot bundle with generated secrets and initial passwords:
 ```bash
 bash scripts/init_pilot_env.sh
 bash scripts/validate_production_env.sh .env
-docker compose up -d --build
 ```
 
 ## Required environment
@@ -80,17 +69,6 @@ REFRESH_TOKEN_TTL=168h
 PASSWORD_RESET_TTL=1h
 PASSWORD_RESET_WEBHOOK_URL=https://mailer.internal/hooks/taskflow-password-reset
 PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
-RATE_LIMIT_REQUESTS=120
-RATE_LIMIT_WINDOW=1m
-LOGIN_RATE_LIMIT_REQUESTS=10
-LOGIN_RATE_LIMIT_WINDOW=5m
-PASSWORD_RESET_RATE_LIMIT_REQUESTS=5
-PASSWORD_RESET_RATE_LIMIT_WINDOW=15m
-IDEMPOTENCY_TTL=10m
-TRACING_ENABLED=false
-TRACING_ENDPOINT=otel-collector:4318
-TRACING_INSECURE=true
-TRACING_SERVICE_NAME=taskflow
 CORS_ALLOWED_ORIGINS=https://taskflow.internal
 ```
 
@@ -102,17 +80,15 @@ MONGODB_URI_FILE=/run/secrets/taskflow_mongodb_uri
 PASSWORD_RESET_WEBHOOK_AUTH_TOKEN_FILE=/run/secrets/taskflow_reset_webhook_token
 ```
 
-`STRICT_PRODUCTION_CONFIG=true` rejects unsafe placeholder values, local-development CORS origins, memory mode, missing `PASSWORD_RESET_WEBHOOK_URL`, non-HTTPS password-reset webhooks, missing password-reset webhook auth, and other obviously non-production inputs.
-
-Validate the env file before rollout:
+Validate the final env file before any rollout:
 
 ```bash
 bash scripts/validate_production_env.sh .env
 ```
 
-## Build
+## Build and migrations
 
-Build the application image with an immutable version string:
+Build an immutable candidate image:
 
 ```bash
 docker build \
@@ -120,11 +96,7 @@ docker build \
   -t taskflow:latest .
 ```
 
-The repository pins Go `1.25.11` in `go.mod`, and the frontend CI baseline uses Node `22`.
-
-## Run migrations
-
-Apply versioned Mongo migrations before first traffic:
+Run migrations explicitly when you need an auditable rollout order:
 
 ```bash
 docker run --rm \
@@ -137,38 +109,28 @@ docker run --rm \
   /usr/local/bin/taskflow-migrate
 ```
 
-The server also applies pending migrations at startup, but running `taskflow-migrate` explicitly keeps rollout order auditable.
+The server also applies pending migrations on startup, but the dedicated migrate entrypoint is preferred for controlled releases.
 
-## Run the service
-
-### Direct container run
-
-```bash
-docker run --rm -p 8080:8080 \
-  -e DEV_MODE=false \
-  -e TASK_REPOSITORY_DRIVER=mongo \
-  -e MONGODB_URI=mongodb://host.docker.internal:27017/?replicaSet=rs0 \
-  -e MONGODB_DATABASE=taskflow \
-  -e JWT_SECRET=replace-me-with-a-real-secret \
-  -e APP_VERSION=local \
-  taskflow:latest
-```
-
-### Compose-based run
-
-```bash
-docker compose up -d --build
-```
-
-For the packaged web entry and `/api` proxy:
-
-```bash
-docker compose --profile full up -d --build web
-```
+## Controlled release path
 
 Compose defaults such as `compose-local` secrets, `compose-local` app version, and local CORS origins are development-only and must be overridden for intranet or production use.
 
-Preferred controlled compose release path:
+Candidate gate before any real rollout:
+
+```bash
+bash scripts/release_candidate_check.sh .env
+```
+
+This gate is the mandatory place for:
+
+- Go / frontend / governance checks
+- warm-stack API acceptance
+- cold-start acceptance
+- Hermes API key lifecycle verification
+- backup / restore verification
+- nginx, browser, and monitoring smoke
+
+Controlled deployment entry:
 
 ```bash
 bash scripts/intranet_release.sh .env
@@ -180,6 +142,16 @@ For the packaged same-origin web entry:
 TASKFLOW_RELEASE_INCLUDE_WEB=true bash scripts/intranet_release.sh .env
 ```
 
+When browser verification must also run on that environment:
+
+```bash
+TASKFLOW_RELEASE_INCLUDE_WEB=true \
+TASKFLOW_RELEASE_RUN_WEB_ACCEPTANCE=true \
+bash scripts/intranet_release.sh .env
+```
+
+`scripts/intranet_release.sh` intentionally runs non-destructive post-deploy smoke only. It does not execute the destructive backup/restore branch from `scripts/intranet_acceptance.sh`.
+
 ## Health and observability
 
 Important endpoints:
@@ -188,10 +160,10 @@ Important endpoints:
 - `GET /readyz`: readiness, including Mongo ping when Mongo mode is enabled
 - `GET /metrics`: Prometheus-style text metrics
 
-Current response and telemetry behavior:
+Current response telemetry behavior:
 
 - every response echoes `X-Request-ID` and `X-Trace-ID`
-- metrics include HTTP, identity, rate-limit, and idempotency counters
+- metrics include HTTP, identity, rate-limit, idempotency counters
 - when tracing is enabled, OTLP spans line up with trace IDs used in logs
 
 For local monitoring profile validation:
@@ -205,10 +177,11 @@ bash scripts/monitoring_smoke.sh
 
 Recommended order:
 
-1. Validate `.env` with `scripts/validate_production_env.sh`.
-2. Run `bash scripts/intranet_release.sh .env` as the controlled release entry.
-3. If needed, rerun targeted smoke or browser checks before widening traffic.
-4. Keep the previous image available until core checks pass.
+1. Validate `.env` with `bash scripts/validate_production_env.sh .env`.
+2. Run `bash scripts/release_candidate_check.sh .env` in a candidate environment with Docker / Compose available.
+3. Run `bash scripts/intranet_release.sh .env` on the target environment as the only supported deployment entry.
+4. If shipping the same-origin web entry, set `TASKFLOW_RELEASE_INCLUDE_WEB=true`; add `TASKFLOW_RELEASE_RUN_WEB_ACCEPTANCE=true` when browser verification is required on that host.
+5. Keep the previous image available until post-release checks pass.
 
 Useful post-start checks:
 
@@ -221,7 +194,7 @@ bash scripts/web_acceptance_smoke.sh
 
 ## Rollback
 
-The current migration set is additive, and task deletion is implemented as soft delete, so rollback is operationally straightforward.
+The current migration set is additive, and task deletion is soft delete, so rollback is operationally straightforward.
 
 Use the helper script for compose-based rollback:
 
@@ -255,6 +228,6 @@ Recommended rollback flow:
 ## Current limitations
 
 - There is no device/session management UI yet.
-- Password-reset token delivery still depends on external delivery wiring; in `DEV_MODE=true`, the token is exposed only for local verification.
+- Password-reset token delivery still depends on external webhook wiring; in `DEV_MODE=true`, the token is exposed only for local verification.
 - OTLP topology is environment-owned; the repo only provides a local collector example.
-- CI covers build, tests, smoke, migration, monitoring, and release-audit checks, but it does not provide full CD orchestration.
+- CI covers build, tests, smoke, migration, monitoring, and release-audit checks, but does not provide full CD orchestration.

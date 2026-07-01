@@ -16,6 +16,7 @@ fail() {
 
 compose_up_mode="${STACK_COMPOSE_UP_MODE:-build}"
 
+require_container_stack || fail "docker / docker compose unavailable"
 load_compose_context
 
 base_url="${BASE_URL:-http://127.0.0.1:8080}"

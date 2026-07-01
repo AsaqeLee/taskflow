@@ -52,48 +52,43 @@ run_cmd() {
 
 wait_ready() {
   local ready_url="$1"
+  local attempt
+
   if is_true "$DRY_RUN"; then
     log "DRY_RUN skip readiness probe: ${ready_url}"
     return 0
   fi
 
-  local attempt
   for attempt in $(seq 1 "$READY_RETRIES"); do
     if curl --silent --fail "$ready_url" >/dev/null 2>&1; then
-      log "service ready on attempt ${attempt}"
+      log "service ready: ${ready_url}"
       return 0
     fi
     sleep "$READY_SLEEP_SECONDS"
   done
+
   return 1
 }
 
 capture_rollback_image() {
-  local container_id image_id
-
-  container_id="$(compose_cmd ps -q taskflow 2>/dev/null || true)"
-  if [[ -z "$container_id" ]]; then
-    log "no existing taskflow container found; rollback image not captured"
+  if is_true "$DRY_RUN"; then
+    rollback_image="${TASKFLOW_PREVIOUS_IMAGE:-unknown-dry-run}"
     return 0
   fi
 
-  image_id="$(docker inspect -f '{{.Image}}' "$container_id")"
-  rollback_image="taskflow:rollback-$(date +%Y%m%d%H%M%S)"
-  run_cmd docker tag "$image_id" "$rollback_image"
-  log "captured rollback image ${rollback_image}"
+  if ! rollback_image="$(docker image inspect "$candidate_image" --format '{{index .RepoTags 0}}' 2>/dev/null)"; then
+    rollback_image="${TASKFLOW_PREVIOUS_IMAGE:-}"
+  fi
 }
 
 rollback_release() {
-  if is_true "$DRY_RUN"; then
-    log "DRY_RUN skip rollback to ${rollback_image:-<none>}"
-    return 0
-  fi
   if ! is_true "$ROLLBACK_ON_FAILURE"; then
-    log "release failed; rollback disabled"
+    log "rollback disabled"
     return 0
   fi
+
   if [[ -z "${rollback_image:-}" ]]; then
-    log "release failed; no rollback image available"
+    log "rollback image not available; skipping rollback"
     return 0
   fi
 
@@ -137,6 +132,10 @@ source "$ENV_FILE"
 set +a
 load_compose_context
 
+if ! is_true "$DRY_RUN"; then
+  require_container_stack || fail "docker / docker compose unavailable"
+fi
+
 if is_true "$RUN_WEB_ACCEPTANCE"; then
   INCLUDE_WEB=true
 fi
@@ -150,6 +149,7 @@ rollback_image=""
 candidate_deployed=false
 
 log "candidate image: ${candidate_image}"
+log "expected precondition: release candidate gate already passed"
 capture_rollback_image
 
 if is_true "$INCLUDE_WEB"; then
@@ -176,7 +176,7 @@ else
 fi
 candidate_deployed=true
 
-log "waiting for readiness"
+log "waiting readiness"
 wait_ready "$ready_url" || fail "readyz did not return success: ${ready_url}"
 
 log "running API smoke"

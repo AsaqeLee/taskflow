@@ -1,82 +1,87 @@
-# TaskFlow 内网发布检查清单
+## TaskFlow 内网发布检查清单
 
-面向“这版是否可以作为内网 MVP / 试点版本发布”的最终收口清单。
+面向“这版是否可以作为内网候选版本并推进正式发布”的最终收口清单。
+具体发布步骤看 `INTRANET_RUNBOOK.md`，脚本说明看 `ACCEPTANCE_TESTING.md`，日常运维看 `INTRANET_OPS.md`。
 
-- 具体部署步骤看 `INTRANET_RUNBOOK.md`
-- 脚本说明看 `ACCEPTANCE_TESTING.md`
-- 日常运维看 `INTRANET_OPS.md`
+## 1. 记录本次候选信息
 
-## 1. 先记录本次候选信息
-
-每次准备试点或上线前，先补齐这四项：
-
-- 候选日期
-- 候选 commit / tag
-- 执行人
-- 对应校验记录路径，例如 `reports/intranet-release-assessment-YYYY-MM-DD.md`
+- [ ] 候选日期已记录
+- [ ] 候选 commit / tag 已记录
+- [ ] 执行人已记录
+- [ ] 对应校验记录路径已记录，例如 `reports/intranet-release-assessment-YYYY-MM-DD.md`
 
 说明：
 
-- `reports/` 里的历史校验记录用于审计，不等于“当前仓库 HEAD 自动已通过发布校验”。
-- 只有在本次候选版本重新完成校验后，才能把这份清单视为已执行。
+- `reports/` 中的历史记录仅用于审计，不代表当前版本自动通过。
+- 每次新候选都要重新执行门禁并重新留痕。
 
-## 2. 仓库内发布门槛
+## 2. 候选门禁必须通过
 
-以下事项应在候选版本上逐项执行并留痕：
+在候选环境或本地可复现实验环境执行：
 
-- [ ] 已确认发布范围仍为 MVP：不含用户管理 UI、自助密码重置页、公开注册页、任务分页搜索
-- [ ] `DEV_MODE=false` 的严格生产参数校验已通过
-- [ ] `STRICT_PRODUCTION_CONFIG=true` 已启用并通过正向校验
-- [ ] `JWT_SECRET` / `APP_VERSION` / `BOOTSTRAP_USERS_FILE` / `CORS_ALLOWED_ORIGINS` 已能通过 `.env` 或 shell 注入
-- [ ] 已确认受控发布入口可用：`bash scripts/intranet_release.sh .env`
-- [ ] `go test ./...` 通过
-- [ ] `cd web && npm run lint && npm run test && npm run build` 通过
-- [ ] `bash scripts/compose_smoke.sh` 通过
-- [ ] `bash scripts/nginx_smoke.sh` 通过
-- [ ] `bash scripts/monitoring_smoke.sh` 通过
-- [ ] `bash scripts/intranet_acceptance.sh` 通过
-- [ ] 必要时补跑 `bash scripts/web_acceptance_smoke.sh`
+```bash
+bash scripts/release_candidate_check.sh .env
+```
 
-## 3. 目标环境发布门槛
+必须确认以下事项全部成立：
 
-以下事项不在仓库内自动完成，但未满足前不能标记为“可试点部署”或“正式上线”：
+- [ ] `DEV_MODE=false` 的严格生产参数校验通过
+- [ ] Go 全量测试通过
+- [ ] 前端 `lint/test/build` 通过
+- [ ] `scripts/security_audit.sh` 通过
+- [ ] `scripts/compose_smoke.sh` 通过
+- [ ] `scripts/intranet_acceptance.sh` 增量模式通过
+- [ ] `scripts/intranet_acceptance.sh` 冷启动模式通过
+- [ ] Hermes API key 生命周期通过：创建、认证、执行任务流、吊销后 401
+- [ ] 备份恢复通过：`mongodump -> delete -> mongorestore` 后任务恢复
+- [ ] `scripts/nginx_smoke.sh` 通过
+- [ ] `scripts/web_acceptance_smoke.sh` 通过
+- [ ] `scripts/monitoring_smoke.sh` 通过
+- [ ] 候选门禁日志或 evidence 已保存
 
-- [ ] 已准备目标环境真实 `.env`
-- [ ] 已生成并妥善保管真实 `JWT_SECRET`
-- [ ] 已准备真实 `BOOTSTRAP_USERS_FILE`，并替换默认密码
-- [ ] 已落实真实入口域名、HTTPS、反向代理和访问边界
-- [ ] 已按 `INTRANET_RUNBOOK.md` 在目标环境完成部署
-- [ ] `/readyz` 为 `200`
-- [ ] 登录、建任务、分配、提交、审批、关闭主流程已在目标环境点验
-- [ ] 同域入口或前后端分离入口已验证
-- [ ] 已完成一次真实备份与恢复演练
-- [ ] 已确认回滚入口、回滚命令和回滚责任人
+## 3. 正式发布前确认
 
-## 4. Go / No-Go 判定
+- [ ] Docker / Docker Compose 在目标主机可用
+- [ ] `APP_VERSION` 已固定为本次候选 commit / tag
+- [ ] `JWT_SECRET`、`BOOTSTRAP_USERS_FILE`、Mongo 连接、密码重置 webhook 等生产参数已确认
+- [ ] 已明确是否包含 same-origin web 入口
+- [ ] 已明确回滚目标镜像或已设置 `TASKFLOW_PREVIOUS_IMAGE`
+- [ ] 已确认本次发布只走 `bash scripts/intranet_release.sh .env`
 
-仅满足“仓库内发布门槛”时：
+## 4. 正式发布命令
 
-- 只能标记为“仓库内试点候选版”
-- 不能标记为“已上线”或“企业生产级”
+API-only：
 
-同时满足“仓库内发布门槛”和“目标环境发布门槛”时：
+```bash
+bash scripts/intranet_release.sh .env
+```
 
-- 才可标记为“可试点部署”
-- 再由业务 / 运维共同做 go / no-go 判定
+包含 same-origin web：
 
-## 5. 本次发布应产出的记录
+```bash
+TASKFLOW_RELEASE_INCLUDE_WEB=true bash scripts/intranet_release.sh .env
+```
 
-- 一份候选校验记录，落在 `reports/`
-- 一份目标环境部署 / 验收记录
-- 一份备份恢复演练记录
-- 一份最终 go / no-go 结论
+如果需要同时跑浏览器验收：
 
-## 6. 当前范围提醒
+```bash
+TASKFLOW_RELEASE_INCLUDE_WEB=true \
+TASKFLOW_RELEASE_RUN_WEB_ACCEPTANCE=true \
+bash scripts/intranet_release.sh .env
+```
 
-本阶段仍不包含：
+## 5. 发布后确认
 
-- 用户管理 UI
-- 自助密码重置 UI
-- 公开注册 UI
-- 分页搜索、附件、通知
-- 企业级 SSO / MFA / 多租户
+- [ ] `/readyz` 返回 200
+- [ ] `/metrics` 可访问
+- [ ] API 登录、建任务、流转正常
+- [ ] same-origin web 场景下首页和 `/api` 代理正常
+- [ ] 关键日志、请求 ID、trace ID 可定位
+- [ ] 如发布失败，优先执行 `scripts/rollback_image.sh`
+
+## 6. 不要在正式环境临时替代的操作
+
+- [ ] 不跳过候选门禁直接发布
+- [ ] 不用 `X-User-ID`、legacy token 或手工伪造请求作为发布依据
+- [ ] 不把 `scripts/intranet_acceptance.sh` 的备份恢复步骤直接当成线上临时巡检动作重复执行
+- [ ] 不绕过 `scripts/intranet_release.sh` 手工拼接 compose / migrate / web 发布命令
