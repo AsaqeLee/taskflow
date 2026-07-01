@@ -18,6 +18,9 @@ ASSIGNEE_ID="${ASSIGNEE_ID:-u_alice}"
 ASSIGNEE_PASS="${ASSIGNEE_PASS:-change-me-alice-123}"
 COLD_START="${COLD_START:-0}"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT/backups/acceptance}"
+HERMES_ID="u_hermes_acceptance"
+HERMES_NAME="Hermes Acceptance Agent"
+HERMES_PASS="Hermes-Accept-456"
 
 log() { printf '[acceptance] %s\n' "$*"; }
 fail() { printf '[acceptance] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -101,7 +104,37 @@ if sys.argv[2] not in ids:
     raise SystemExit(f"assignee {sys.argv[2]} not in users list")
 PY
 
-log "P3-13: owner + assignee full workflow (incl. reject → restart)"
+log "P2: owner can provision Hermes API key"
+HERMES_CREATE_STATUS="$(curl -sS -o /tmp/tf_hermes_create.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/users" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d "{\"id\":\"${HERMES_ID}\",\"name\":\"${HERMES_NAME}\",\"role\":\"agent\",\"password\":\"${HERMES_PASS}\"}")"
+if [[ "$HERMES_CREATE_STATUS" != "201" && "$HERMES_CREATE_STATUS" != "409" ]]; then
+  fail "create Hermes agent expected 201/409, got ${HERMES_CREATE_STATUS}"
+fi
+
+HERMES_KEY_STATUS="$(curl -sS -o /tmp/tf_hermes_api_key.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/users/${HERMES_ID}/api-keys" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"acceptance-hermes"}')"
+[[ "$HERMES_KEY_STATUS" == "201" ]] || fail "create Hermes API key expected 201, got ${HERMES_KEY_STATUS}"
+HERMES_KEY="$(json_field /tmp/tf_hermes_api_key.json key)"
+HERMES_KEY_ID="$(json_field /tmp/tf_hermes_api_key.json api_key.id)"
+
+HERMES_ME_STATUS="$(curl -sS -o /tmp/tf_hermes_me.json -w '%{http_code}' \
+  -H "Authorization: Bearer ${HERMES_KEY}" \
+  "${BASE_URL}/me")"
+[[ "$HERMES_ME_STATUS" == "200" ]] || fail "Hermes API key /me expected 200, got ${HERMES_ME_STATUS}"
+python3 - <<'PY' /tmp/tf_hermes_me.json "${HERMES_ID}"
+import json, sys
+user = json.load(open(sys.argv[1], encoding="utf-8"))["user"]
+if user["id"] != sys.argv[2]:
+    raise SystemExit(f"expected Hermes id {sys.argv[2]}, got {user['id']}")
+PY
+
+log "P3-13: owner + Hermes API key full workflow (incl. reject → restart)"
 TASK_STATUS="$(curl -sS -o /tmp/tf_task_create.json -w '%{http_code}' \
   -X POST "${BASE_URL}/tasks" \
   -H "Authorization: Bearer ${OWNER_TOKEN}" \
@@ -113,13 +146,13 @@ TASK_ID="$(json_field /tmp/tf_task_create.json task.id)"
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/assign" \
   -H "Authorization: Bearer ${OWNER_TOKEN}" \
   -H 'Content-Type: application/json' \
-  -d "{\"assignee_id\":\"${ASSIGNEE_ID}\"}" >/dev/null
+  -d "{\"assignee_id\":\"${HERMES_ID}\"}" >/dev/null
 
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/start" \
-  -H "Authorization: Bearer ${ALICE_TOKEN}" >/dev/null
+  -H "Authorization: Bearer ${HERMES_KEY}" >/dev/null
 
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/submit" \
-  -H "Authorization: Bearer ${ALICE_TOKEN}" \
+  -H "Authorization: Bearer ${HERMES_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{"content":"first submit"}' >/dev/null
 
@@ -129,10 +162,10 @@ curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/reject" \
   -d '{"content":"please revise"}' >/dev/null
 
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/start" \
-  -H "Authorization: Bearer ${ALICE_TOKEN}" >/dev/null
+  -H "Authorization: Bearer ${HERMES_KEY}" >/dev/null
 
 curl -sf -X POST "${BASE_URL}/tasks/${TASK_ID}/submit" \
-  -H "Authorization: Bearer ${ALICE_TOKEN}" \
+  -H "Authorization: Bearer ${HERMES_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{"content":"revised submit"}' >/dev/null
 
@@ -179,4 +212,15 @@ docker compose exec -T mongo mongorestore \
 RESTORED_STATUS="$(curl -sS "${BASE_URL}/tasks/${TASK_ID}" -H "Authorization: Bearer ${OWNER_TOKEN}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["task"]["status"])')"
 [[ "$RESTORED_STATUS" == "completed" ]] || fail "restore did not bring task back"
 
-log "ALL PASSED: P3-10 (cold=${COLD_START}), P3-11, P3-12, P3-13"
+log "P2: revoke Hermes API key"
+HERMES_REVOKE_STATUS="$(curl -sS -o /tmp/tf_hermes_revoke.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/users/${HERMES_ID}/api-keys/${HERMES_KEY_ID}/revoke" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}")"
+[[ "$HERMES_REVOKE_STATUS" == "200" ]] || fail "revoke Hermes API key expected 200, got ${HERMES_REVOKE_STATUS}"
+
+HERMES_REUSE_STATUS="$(curl -sS -o /tmp/tf_hermes_reuse.json -w '%{http_code}' \
+  -H "Authorization: Bearer ${HERMES_KEY}" \
+  "${BASE_URL}/me" || true)"
+[[ "$HERMES_REUSE_STATUS" == "401" ]] || fail "revoked Hermes API key expected 401, got ${HERMES_REUSE_STATUS}"
+
+log "ALL PASSED: P2, P3-10 (cold=${COLD_START}), P3-11, P3-12, P3-13"

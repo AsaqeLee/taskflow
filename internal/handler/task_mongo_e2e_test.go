@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AsaqeLee/taskflow/internal/auth"
 	"github.com/AsaqeLee/taskflow/internal/database"
 	"github.com/AsaqeLee/taskflow/internal/middleware"
 	"github.com/AsaqeLee/taskflow/internal/model"
@@ -25,6 +26,7 @@ import (
 
 const testMongoURIEnv = "TASKFLOW_MONGO_TEST_URI"
 const testMongoDBEnv = "TASKFLOW_MONGO_TEST_DATABASE"
+const testJWTSecret = "test_secret"
 
 func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -77,9 +79,8 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		mongoDB.Collection("api_keys"),
 	)
 
-	testutil.SeedAccount(t, userRepo, "u_test_001", "Test Creator", "owner", "token_creator")
-	testutil.SeedAccount(t, userRepo, "u_test_002", "Test Assignee", "human", "token_assignee")
-	testutil.SeedAccount(t, userRepo, "u_agent_001", "Hermes Agent", "agent", "token_agent")
+	creatorAccount := testutil.SeedAccount(t, userRepo, "u_test_001", "Test Creator", "owner", "token_creator")
+	agentAccount := testutil.SeedAccount(t, userRepo, "u_agent_001", "Hermes Agent", "agent", "token_agent")
 
 	dbClient := &database.Client{Mongo: client, DBName: dbName}
 	taskSvc := service.NewTaskService(taskRepo, recordRepo, auditRepo, userRepo, dbClient)
@@ -87,7 +88,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	identityService := service.NewIdentityService(userRepo, identityRepo, false, dbClient)
 	identityHandler := NewIdentityHandler(
 		identityService,
-		"test_secret",
+		testJWTSecret,
 		time.Hour,
 		24*time.Hour,
 		time.Hour,
@@ -103,7 +104,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	r.POST("/users", identityHandler.Register)
 
 	authenticated := r.Group("/")
-	authenticated.Use(middleware.UserAuth(userRepo, "test_secret", true))
+	authenticated.Use(middleware.UserAuth(userRepo, testJWTSecret, false, identityRepo))
 	authenticated.GET("/me", identityHandler.Me)
 	authenticated.POST("/tasks", taskHandler.Create)
 	authenticated.GET("/tasks", taskHandler.List)
@@ -132,8 +133,34 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		return w
 	}
 
-	hCreator := map[string]string{"X-User-ID": "u_test_001"}
-	hAssignee := map[string]string{"X-User-ID": "u_test_002"}
+	creatorToken, err := auth.GenerateToken(creatorAccount.ID(), creatorAccount.Role().String(), testJWTSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("generate creator token: %v", err)
+	}
+	_, hermesAPIKey, err := identityService.CreateAPIKey(ctx, model.UserFromAccount(creatorAccount), agentAccount.ID(), "Mongo E2E Hermes", nil)
+	if err != nil {
+		t.Fatalf("create hermes api key: %v", err)
+	}
+	bearerHeaders := func(token string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + token}
+	}
+	hCreator := bearerHeaders(creatorToken)
+	hHermes := bearerHeaders(hermesAPIKey)
+
+	t.Log("Step 0: Hermes API key authenticates")
+	meResp := sendRequest("GET", "/me", "", hHermes)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected hermes /me 200, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	var meBody struct {
+		User model.User `json:"user"`
+	}
+	if err := json.Unmarshal(meResp.Body.Bytes(), &meBody); err != nil {
+		t.Fatalf("decode hermes /me: %v", err)
+	}
+	if meBody.User.ID != agentAccount.ID() {
+		t.Fatalf("expected hermes /me user %q, got %q", agentAccount.ID(), meBody.User.ID)
+	}
 
 	t.Log("Step 1: Create Task")
 	w1 := sendRequest("POST", "/tasks", `{"title": "Mongo E2E Task", "description": "integration check"}`, hCreator)
@@ -149,7 +176,7 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 	taskID := cResp.Task.ID
 
 	t.Log("Step 2: Assign Task")
-	w2 := sendRequest("POST", "/tasks/"+taskID+"/assign", `{"assignee_id": "u_test_002"}`, hCreator)
+	w2 := sendRequest("POST", "/tasks/"+taskID+"/assign", `{"assignee_id": "u_agent_001"}`, hCreator)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w2.Code, w2.Body.String())
 	}
@@ -160,14 +187,14 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden, got %d", w25.Code)
 	}
 
-	t.Log("Step 3: Start Task")
-	w3 := sendRequest("POST", "/tasks/"+taskID+"/start", "", hAssignee)
+	t.Log("Step 3: Start Task with Hermes API key")
+	w3 := sendRequest("POST", "/tasks/"+taskID+"/start", "", hHermes)
 	if w3.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w3.Code)
 	}
 
-	t.Log("Step 4: Submit Task")
-	w4 := sendRequest("POST", "/tasks/"+taskID+"/submit", `{"content": "initial draft"}`, hAssignee)
+	t.Log("Step 4: Submit Task with Hermes API key")
+	w4 := sendRequest("POST", "/tasks/"+taskID+"/submit", `{"content": "initial draft"}`, hHermes)
 	if w4.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w4.Code)
 	}
@@ -178,14 +205,14 @@ func TestHandler_MongoE2EWorkflow(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w5.Code)
 	}
 
-	t.Log("Step 6: Re-start Task")
-	w6 := sendRequest("POST", "/tasks/"+taskID+"/start", "", hAssignee)
+	t.Log("Step 6: Re-start Task with Hermes API key")
+	w6 := sendRequest("POST", "/tasks/"+taskID+"/start", "", hHermes)
 	if w6.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w6.Code)
 	}
 
-	t.Log("Step 7: Re-submit Task")
-	w7 := sendRequest("POST", "/tasks/"+taskID+"/submit", `{"content": "added tests"}`, hAssignee)
+	t.Log("Step 7: Re-submit Task with Hermes API key")
+	w7 := sendRequest("POST", "/tasks/"+taskID+"/submit", `{"content": "added tests"}`, hHermes)
 	if w7.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w7.Code)
 	}

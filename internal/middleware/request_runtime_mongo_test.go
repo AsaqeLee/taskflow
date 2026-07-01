@@ -98,8 +98,9 @@ func TestMongoIdempotencyMiddlewareReleasesTimedOutRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(RequestContext())
-	router.Use(Timeout(10 * time.Millisecond))
 	router.Use(Idempotency(store, nil))
+	// Keep the tiny timeout scoped to handler execution instead of Mongo reserve latency.
+	router.Use(Timeout(10 * time.Millisecond))
 	router.POST("/slow", func(c *gin.Context) {
 		executions.Add(1)
 		time.Sleep(25 * time.Millisecond)
