@@ -184,6 +184,7 @@ GitHub Actions 会在 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) �
 - 首次上线 Runbook：[`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md)
 - 日常运维：[`INTRANET_OPS.md`](./INTRANET_OPS.md)
 - 验收与 smoke 脚本说明：[`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)
+- 个人/团队收尾与维护约定：[`docs/团队收尾.md`](./docs/团队收尾.md)
 
 ## 生产环境说明
 
