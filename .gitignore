@@ -41,3 +41,5 @@ scripts/users.intranet.json
 backups/acceptance/*.gz
 evidence/
 /docs/plans/
+coverage.out
+*.out
