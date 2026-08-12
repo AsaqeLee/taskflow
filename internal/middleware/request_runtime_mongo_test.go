@@ -25,8 +25,12 @@ func TestMongoRateLimiterSharesStateAcrossInstances(t *testing.T) {
 	limiterA := NewMongoRateLimiter(collection, 1, time.Minute)
 	limiterB := NewMongoRateLimiter(collection, 1, time.Minute)
 
-	now := time.Now().UTC()
-	allowed, err := limiterA.Allow(context.Background(), "shared-client", now)
+	// Pin inside a window, away from Truncate(time.Minute) boundaries.
+	// Using wall-clock now/now+1s can straddle the minute edge and create two keys.
+	now := time.Now().UTC().Truncate(time.Minute).Add(30 * time.Second)
+	clientID := "shared-client-" + bson.NewObjectID().Hex()
+
+	allowed, err := limiterA.Allow(context.Background(), clientID, now)
 	if err != nil {
 		t.Fatalf("limiterA.Allow returned error: %v", err)
 	}
@@ -34,7 +38,8 @@ func TestMongoRateLimiterSharesStateAcrossInstances(t *testing.T) {
 		t.Fatalf("expected first limiter to allow request")
 	}
 
-	allowed, err = limiterB.Allow(context.Background(), "shared-client", now.Add(time.Second))
+	// Same window, different limiter instance — must observe shared Mongo state.
+	allowed, err = limiterB.Allow(context.Background(), clientID, now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("limiterB.Allow returned error: %v", err)
 	}
