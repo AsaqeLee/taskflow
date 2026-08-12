@@ -49,7 +49,7 @@ taskflow/
 
 Requirements:
 
-- Go `1.25.11`
+- Go `1.25.12`
 
 Run the API in dev mode with the in-memory repository:
 
