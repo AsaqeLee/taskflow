@@ -2,56 +2,54 @@
 
 English | [简体中文](./README_ZH.md)
 
-TaskFlow is a full-stack internal task workflow system. This repository contains:
-
-- a Go HTTP API with explicit task state transitions
-- a React frontend under `web/`
-- Mongo-backed release, validation, and intranet rollout scripts
-
-The current workflow is centered on a small-team delivery loop:
+Internal task workflow system: Go API + React workbench + Mongo persistence.
 
 ```text
-create -> assign -> start -> submit -> approve/reject -> close
+create → assign → start → submit → approve/reject → close
 ```
 
-## What is in scope
+Intranet MVP / pilot-candidate. **Maintenance mode** — not enterprise production.
 
-- Password-based login, refresh-token rotation, password reset, account disable, and session revoke
-- JWT auth for non-dev environments
-- Health, readiness, liveness, metrics, structured logs, request IDs, and optional OTLP tracing
-- Mongo migrations, soft delete with audit retention, rate limiting, and idempotency
-- A browser UI for login, task list, task detail, task creation, and current-user profile
+[![CI](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml)
 
-## Repository layout
+## Demo
 
-```text
-taskflow/
-├── cmd/                 # server and migration entrypoints
-├── internal/
-│   ├── bootstrap/       # app assembly
-│   ├── config/          # environment config and strict production validation
-│   ├── domain/          # aggregates, state machine, ports
-│   ├── handler/         # HTTP handlers
-│   ├── middleware/      # auth, logging, tracing, rate limit, idempotency
-│   ├── repository/      # Mongo and memory adapters
-│   ├── router/          # route wiring
-│   └── service/         # task and identity use cases
-├── web/                 # React + Vite frontend
-├── scripts/             # smoke tests, rollout helpers, audits
-├── deploy/              # local observability config
-├── reports/             # release, security, and performance notes
-└── docs/                # project notes and local planning space
-```
+Local compose walkthrough (login → task list → submitted task → audit → approve dialog).
+
+![TaskFlow walkthrough](docs/demo/walkthrough.gif)
+
+[MP4](docs/demo/walkthrough.mp4)
+
+| Login | Task list |
+|---|---|
+| ![Login](docs/demo/01_login.png) | ![Task list](docs/demo/02_tasks_list.png) |
+
+| Task detail | Audit |
+|---|---|
+| ![Task detail](docs/demo/03_task_detail.png) | ![Audit](docs/demo/04_task_audit.png) |
+
+| Approve | Users |
+|---|---|
+| ![Approve dialog](docs/demo/05_approve_dialog.png) | ![Users](docs/demo/07_users.png) |
+
+Media notes: [`docs/demo/README.md`](docs/demo/README.md). Screenshots are a local stack, not a live intranet deploy.
+
+## What it does
+
+- Explicit task state machine with role-constrained actions
+- Backend returns `available_actions`; the UI prefers that and keeps a fallback matrix
+- JWT login, refresh rotation, password reset, account disable, session revoke
+- API keys for unattended / agent callers
+- Collaboration records + audit log on each task
+- Health / ready / live / metrics, structured logs, optional OTLP
+- Mongo + memory dual persistence, migrations, bootstrap, backup scripts
+- Same-origin nginx workbench: list, detail, create, users, profile
 
 ## Quick start
 
-### 1. Backend only, fastest local loop
+### Fastest: API only
 
-Requirements:
-
-- Go `1.25.12`
-
-Run the API in dev mode with the in-memory repository:
+Needs Go `1.25.12`.
 
 ```bash
 go test ./...
@@ -62,21 +60,15 @@ JWT_SECRET=change-me-change-me-change-me-123 \
 go run ./cmd/server
 ```
 
-Dev mode seeds these users:
+Dev-mode seed users (local only):
 
 - `u_test_001` / `creator-pass-123`
 - `u_test_002` / `assignee-pass-123`
 - `u_agent_001` / `agent-pass-123`
 
-`POST /users` is available in dev mode unless `ALLOW_PUBLIC_REGISTER` is overridden.
+### Frontend preview
 
-### 2. Frontend local preview
-
-Requirements:
-
-- Node `22`
-
-Start the API first, then run the Vite app:
+Needs Node `22`. Start the API first:
 
 ```bash
 cd web
@@ -84,47 +76,46 @@ npm ci
 VITE_API_PROXY_TARGET=http://localhost:8080 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173`. The Vite server proxies `/api` to the backend.
 
-Useful frontend commands:
-
-```bash
-cd web
-npm run lint
-npm run test
-npm run build
-npm run preview
-```
-
-The frontend uses `/api` by default and the Vite dev server proxies that path to `VITE_API_PROXY_TARGET` or `http://localhost:8080`.
-
-### 3. Local Mongo compose baseline
-
-Bring up the backend stack with Mongo and bootstrap data:
+### Local Mongo + UI (the demo stack)
 
 ```bash
-docker compose up -d --build
+docker compose --profile full up -d --build
 bash scripts/compose_smoke.sh
+bash scripts/nginx_smoke.sh
 ```
 
-If you also want the packaged same-origin web entry:
+- API: `http://127.0.0.1:8080`
+- Web: `http://127.0.0.1:8081`
+- Mongo on the host: `127.0.0.1:27018`
 
-```bash
-docker compose --profile full up -d --build web
-bash scripts/nginx_smoke.sh
+Compose bootstrap users come from the mounted users file (often `scripts/users.intranet.json` locally, `scripts/users.example.json` in the repo). Do not commit real passwords.
+
+## Repository layout
+
+```text
+taskflow/
+├── cmd/                 # server, migrate, bootstrap
+├── internal/            # domain, handlers, services, repos
+├── web/                 # React + Vite workbench
+├── docs/demo/           # README screenshots + walkthrough
+├── scripts/             # smoke, rollout, audits
+├── deploy/              # local observability config
+└── reports/             # release / security notes
 ```
 
 ## API surface
 
-Public routes:
+Public:
 
-- `POST /auth/login`
+- `POST /auth/login` — body field is `id`, not `username`
 - `POST /auth/refresh`
 - `POST /auth/password-reset/request`
 - `POST /auth/password-reset/confirm`
 - `POST /users` when public registration is enabled
 
-Authenticated routes:
+Authenticated:
 
 - `GET /me`
 - `GET /users`
@@ -139,24 +130,14 @@ Authenticated routes:
 - `GET /tasks/:id/records`
 - `GET /tasks/:id/audit_logs`
 
-System routes:
+System: `GET /health` · `GET /livez` · `GET /readyz` · `GET /metrics`
 
-- `GET /health`
-- `GET /livez`
-- `GET /readyz`
-- `GET /metrics`
-
-## Testing and release checks
-
-Backend:
+## Tests
 
 ```bash
 go test ./...
-```
+go vet ./...
 
-Frontend:
-
-```bash
 cd web
 npm ci
 npm run lint
@@ -164,30 +145,18 @@ npm run test
 npm run build
 ```
 
-Repo-level smoke and release helpers:
+Helpers: `scripts/compose_smoke.sh`, `scripts/web_build_smoke.sh`, `scripts/web_acceptance_smoke.sh`, `scripts/nginx_smoke.sh`, `scripts/intranet_acceptance.sh`, `scripts/security_audit.sh`.
 
-- `bash scripts/compose_smoke.sh`
-- `bash scripts/web_build_smoke.sh`
-- `bash scripts/web_acceptance_smoke.sh`
-- `bash scripts/nginx_smoke.sh`
-- `bash scripts/monitoring_smoke.sh`
-- `bash scripts/intranet_acceptance.sh`
-- `bash scripts/security_audit.sh`
+CI: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
 
-GitHub Actions runs both frontend and backend checks in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
+## Ops docs
 
-## Deployment and operations
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+- [`MIGRATIONS.md`](./MIGRATIONS.md)
+- [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md)
+- [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md)
+- [`INTRANET_OPS.md`](./INTRANET_OPS.md)
+- [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)
+- [`docs/团队收尾.md`](./docs/团队收尾.md)
 
-- Deployment baseline: [`DEPLOYMENT.md`](./DEPLOYMENT.md)
-- Mongo migration discipline: [`MIGRATIONS.md`](./MIGRATIONS.md)
-- Intranet release checklist: [`INTRANET_RELEASE_CHECKLIST.md`](./INTRANET_RELEASE_CHECKLIST.md)
-- First deployment runbook: [`INTRANET_RUNBOOK.md`](./INTRANET_RUNBOOK.md)
-- Day-2 operations: [`INTRANET_OPS.md`](./INTRANET_OPS.md)
-- Acceptance and smoke scripts: [`ACCEPTANCE_TESTING.md`](./ACCEPTANCE_TESTING.md)
-
-## Notes on production behavior
-
-- Production deployments should use `DEV_MODE=false`, `STRICT_PRODUCTION_CONFIG=true`, and `TASK_REPOSITORY_DRIVER=mongo`.
-- Strict production validation also requires `PASSWORD_RESET_WEBHOOK_URL` so password reset tokens have a delivery path outside `DEV_MODE`.
-- Mongo transaction-backed flows require a replica set member or `mongos`, not a standalone Mongo server.
-- The packaged frontend and API can be served together through the compose `full` profile.
+Production should use `DEV_MODE=false`, `STRICT_PRODUCTION_CONFIG=true`, `TASK_REPOSITORY_DRIVER=mongo`, and a real `PASSWORD_RESET_WEBHOOK_URL`. Mongo write paths that use transactions need a replica set member or `mongos`.
