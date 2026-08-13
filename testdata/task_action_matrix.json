@@ -1,0 +1,125 @@
+{
+  "description": "Shared FE/BE available_actions contract. Backend availableActionsForUser and frontend taskWorkflow fallback must stay aligned.",
+  "cases": [
+    {
+      "name": "creator_open",
+      "status": "open",
+      "actor": "creator",
+      "actions": ["assign", "cancel", "delete"]
+    },
+    {
+      "name": "creator_assigned",
+      "status": "assigned",
+      "actor": "creator",
+      "actions": ["cancel", "delete"]
+    },
+    {
+      "name": "creator_in_progress",
+      "status": "in_progress",
+      "actor": "creator",
+      "actions": ["cancel"]
+    },
+    {
+      "name": "creator_submitted",
+      "status": "submitted",
+      "actor": "creator",
+      "actions": ["approve", "reject"]
+    },
+    {
+      "name": "creator_approved",
+      "status": "approved",
+      "actor": "creator",
+      "actions": ["close"]
+    },
+    {
+      "name": "creator_cancelled",
+      "status": "cancelled",
+      "actor": "creator",
+      "actions": ["reactivate"]
+    },
+    {
+      "name": "creator_completed",
+      "status": "completed",
+      "actor": "creator",
+      "actions": ["reactivate"]
+    },
+    {
+      "name": "creator_deleted",
+      "status": "deleted",
+      "actor": "creator",
+      "actions": []
+    },
+    {
+      "name": "assignee_open",
+      "status": "open",
+      "actor": "assignee",
+      "actions": []
+    },
+    {
+      "name": "assignee_assigned",
+      "status": "assigned",
+      "actor": "assignee",
+      "actions": ["start"]
+    },
+    {
+      "name": "assignee_in_progress",
+      "status": "in_progress",
+      "actor": "assignee",
+      "actions": ["submit"]
+    },
+    {
+      "name": "assignee_submitted",
+      "status": "submitted",
+      "actor": "assignee",
+      "actions": []
+    },
+    {
+      "name": "assignee_approved",
+      "status": "approved",
+      "actor": "assignee",
+      "actions": []
+    },
+    {
+      "name": "assignee_cancelled",
+      "status": "cancelled",
+      "actor": "assignee",
+      "actions": []
+    },
+    {
+      "name": "assignee_completed",
+      "status": "completed",
+      "actor": "assignee",
+      "actions": []
+    },
+    {
+      "name": "other_assigned",
+      "status": "assigned",
+      "actor": "other",
+      "actions": []
+    },
+    {
+      "name": "other_submitted",
+      "status": "submitted",
+      "actor": "other",
+      "actions": []
+    },
+    {
+      "name": "creator_and_assignee_assigned",
+      "status": "assigned",
+      "actor": "creator_and_assignee",
+      "actions": ["cancel", "delete", "start"]
+    },
+    {
+      "name": "creator_and_assignee_in_progress",
+      "status": "in_progress",
+      "actor": "creator_and_assignee",
+      "actions": ["cancel", "submit"]
+    },
+    {
+      "name": "creator_and_assignee_submitted",
+      "status": "submitted",
+      "actor": "creator_and_assignee",
+      "actions": ["approve", "reject"]
+    }
+  ]
+}
