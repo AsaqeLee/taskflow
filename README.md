@@ -12,6 +12,21 @@ Intranet MVP / pilot-candidate. **Maintenance mode** — not enterprise producti
 
 [![CI](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml)
 
+## Architecture
+
+```mermaid
+flowchart LR
+  W[Browser / nginx :8081] --> API[Go API :8080]
+  API --> S[(Mongo / memory)]
+  W -.->|JWT| API
+  K[Agent] -.->|API key| API
+```
+
+## Why this exists
+
+- Explicit task state machine with role-constrained actions — not a generic CRUD list
+- Dual persistence (Mongo + memory) and a JWT-session vs API-key boundary for humans vs unattended callers
+
 ## Demo
 
 Local compose walkthrough (login → task list → submitted task → audit → approve dialog).
@@ -24,13 +39,19 @@ Local compose walkthrough (login → task list → submitted task → audit → 
 |---|---|
 | ![Login](docs/demo/01_login.png) | ![Task list](docs/demo/02_tasks_list.png) |
 
+Login plus the owner workbench: four demo tasks across open / assigned / submitted.
+
 | Task detail | Audit |
 |---|---|
 | ![Task detail](docs/demo/03_task_detail.png) | ![Audit](docs/demo/04_task_audit.png) |
 
+Same submitted task: collaboration records plus an append-only audit trail.
+
 | Approve | Users |
 |---|---|
 | ![Approve dialog](docs/demo/05_approve_dialog.png) | ![Users](docs/demo/07_users.png) |
+
+Approve dialog for a submitted task; users page covers accounts and API keys.
 
 Media notes: [`docs/demo/README.md`](docs/demo/README.md). Screenshots are a local stack, not a live intranet deploy.
 

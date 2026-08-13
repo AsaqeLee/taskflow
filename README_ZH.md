@@ -12,6 +12,21 @@ create → assign → start → submit → approve/reject → close
 
 [![CI](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/AsaqeLee/taskflow/actions/workflows/ci.yml)
 
+## 架构
+
+```mermaid
+flowchart LR
+  W[Browser / nginx :8081] --> API[Go API :8080]
+  API --> S[(Mongo / memory)]
+  W -.->|JWT| API
+  K[Agent] -.->|API key| API
+```
+
+## 为什么做这个
+
+- 明确的任务状态机 + 角色约束动作，不是通用 CRUD 列表
+- Mongo / memory 双持久化；人走 JWT 会话，无人值守调用走 API Key
+
 ## 演示
 
 本地 compose 走查：登录 → 任务列表 → 已提交详情 → 审计 → 审批对话框。
@@ -24,13 +39,19 @@ create → assign → start → submit → approve/reject → close
 |---|---|
 | ![登录](docs/demo/01_login.png) | ![任务列表](docs/demo/02_tasks_list.png) |
 
+登录后的 Owner 工作台：四条演示任务，覆盖待处理 / 已分配 / 已提交。
+
 | 任务详情 | 审计 |
 |---|---|
 | ![任务详情](docs/demo/03_task_detail.png) | ![审计](docs/demo/04_task_audit.png) |
 
+同一条已提交任务：协作记录 + 只追加的审计日志。
+
 | 审批 | 用户 |
 |---|---|
 | ![审批对话框](docs/demo/05_approve_dialog.png) | ![用户](docs/demo/07_users.png) |
+
+已提交任务的审批对话框；用户页覆盖账号与 API Key。
 
 素材说明见 [`docs/demo/README.md`](docs/demo/README.md)。以上是本机演示栈，不是目标内网已上线。
 

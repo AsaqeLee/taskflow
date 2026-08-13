@@ -1,6 +1,6 @@
 # TaskFlow demo media
 
-Local compose screenshots and a short walkthrough for the public README.
+Local compose screenshots and a short walkthrough for the public README. README tables add one-line captions (role-constrained actions, records + audit, approve dialog).
 
 ## Scope
 
