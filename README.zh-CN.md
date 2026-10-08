@@ -126,7 +126,7 @@ sequenceDiagram
 
 ## 环境要求
 
-- Go `1.25.12`（本仓库所用版本）
+- Go `1.25.13`（本仓库所用版本）
 - Node `22`（用于 Web 工作台）
 - Docker / Compose（可选，用于完整本地环境）
 - 当 `TASK_REPOSITORY_DRIVER=mongo` 时需要 MongoDB

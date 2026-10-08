@@ -126,7 +126,7 @@ Media notes: [`docs/demo/README.md`](docs/demo/README.md). Screenshots are from 
 
 ## Requirements
 
-- Go `1.25.12` (as used by this repository)
+- Go `1.25.13` (as used by this repository)
 - Node `22` for the web workbench
 - Docker / Compose for the full local stack (optional)
 - MongoDB when `TASK_REPOSITORY_DRIVER=mongo`

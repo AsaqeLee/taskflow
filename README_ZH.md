@@ -72,7 +72,7 @@ flowchart LR
 
 ### 只跑后端
 
-需要 Go `1.25.12`。
+需要 Go `1.25.13`。
 
 ```bash
 go test ./...
