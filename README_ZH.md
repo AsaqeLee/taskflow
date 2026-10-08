@@ -2,6 +2,8 @@
 
 [English](./README.md) | 简体中文
 
+> 注：本文件为旧版中文说明，已不再同步更新。最新的简体中文 README 见 [README.zh-CN.md](README.zh-CN.md)。
+
 面向内网协作的任务工作流系统：Go API + React 工作台 + Mongo 持久化。
 
 ```text
