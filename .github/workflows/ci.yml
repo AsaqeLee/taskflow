@@ -51,6 +51,15 @@ jobs:
         run: |
           docker run -d --name taskflow-ci-mongo -p 27017:27017 mongo:7 --replSet rs0 --bind_ip_all
 
+          # Let the image entrypoint finish (it chowns /data/db) before exec'ing mongosh; probing too early
+          # can race with that chown and kill the container.
+          for attempt in {1..30}; do
+            if docker logs taskflow-ci-mongo 2>&1 | grep -q "Waiting for connections"; then
+              break
+            fi
+            sleep 2
+          done
+
           ready=false
           for attempt in {1..30}; do
             if docker exec taskflow-ci-mongo mongosh --quiet --host 127.0.0.1 --port 27017 --eval 'db.adminCommand({ ping: 1 }).ok' admin | grep 1 >/dev/null; then
