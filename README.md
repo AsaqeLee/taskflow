@@ -160,3 +160,7 @@ For any hardened intranet deploy: `DEV_MODE=false`, `STRICT_PRODUCTION_CONFIG=tr
 ## Status / limitations
 
 Maintenance-mode intranet MVP. Scope is intentionally bounded; do not describe it as enterprise production software.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
