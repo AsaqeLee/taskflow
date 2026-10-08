@@ -12,6 +12,8 @@ SKIP_GO_VET="${SKIP_GO_VET:-false}"
 SKIP_GOVULNCHECK="${SKIP_GOVULNCHECK:-false}"
 SKIP_WEB_AUDIT="${SKIP_WEB_AUDIT:-false}"
 NPM_AUDIT_LEVEL="${NPM_AUDIT_LEVEL:-high}"
+# Pinned: govulncheck >= v1.8.0 requires Go 1.26; v1.7.0 runs on the go.mod toolchain (Go 1.25.x).
+GOVULNCHECK_VERSION="${GOVULNCHECK_VERSION:-v1.7.0}"
 NPM_AUDIT_REGISTRY="${NPM_AUDIT_REGISTRY:-https://registry.npmjs.org}"
 
 echo "[security] go mod verify"
@@ -29,7 +31,7 @@ fi
 
 if [[ "$SKIP_GOVULNCHECK" != "true" ]]; then
   echo "[security] govulncheck ./..."
-  "${GO_RUNNER[@]}" run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  "${GO_RUNNER[@]}" run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
 fi
 
 if [[ "${RUN_GOSEC:-false}" == "true" ]]; then

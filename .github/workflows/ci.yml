@@ -113,7 +113,11 @@ jobs:
         run: go build ./...
 
       - name: Dependency vulnerability audit
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        # Scan with the go.mod toolchain installed by setup-go (no auto-switch to a newer Go), so the
+        # standard library that ships in the binary is the one checked. govulncheck >= v1.8.0 needs Go 1.26.
+        env:
+          GOTOOLCHAIN: local
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
       - name: Validate compose config
         run: |
@@ -175,9 +179,7 @@ jobs:
         run: bash scripts/web_build_smoke.sh
 
       - name: Release governance audit
-        # govulncheck already runs in "Dependency vulnerability audit" above. Inside this script it is pinned to
-        # GOTOOLCHAIN=go<go.mod version>, and govulncheck@latest now requires a newer Go, so skip it here.
-        run: SKIP_GO_TEST=true SKIP_GOVULNCHECK=true bash scripts/security_audit.sh
+        run: SKIP_GO_TEST=true bash scripts/security_audit.sh
 
       - name: Compose build and smoke
         run: bash scripts/compose_smoke.sh
