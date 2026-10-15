@@ -114,10 +114,10 @@ jobs:
 
       - name: Dependency vulnerability audit
         # Scan with the go.mod toolchain installed by setup-go (no auto-switch to a newer Go), so the
-        # standard library that ships in the binary is the one checked. govulncheck >= v1.8.0 needs Go 1.26.
+        # standard library that ships in the binary is the one checked. govulncheck v1.9.0 requires Go >= 1.26.
         env:
           GOTOOLCHAIN: local
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
       - name: Validate compose config
         run: |
